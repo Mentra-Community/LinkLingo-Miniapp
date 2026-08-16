@@ -5,6 +5,9 @@
 version: v2
 name: linklingo-miniapp-dev
 
+envGroups:
+  - linklingo-dev
+
 build:
   method: docker
   context: .

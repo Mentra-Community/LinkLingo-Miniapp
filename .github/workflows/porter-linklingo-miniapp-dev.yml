@@ -1,0 +1,44 @@
+# Porter DEV deploy — linklingo-miniapp-dev.
+#
+# Deploys the backend to the AWS EKS cluster `miniapps-us-west-2` (cluster 5783)
+# on every push to `main`. `porter apply` builds the Docker image on the runner,
+# pushes to the app's ECR repo, and rolls out.
+#
+# Auth: secrets.PORTER_DEPLOY_TOKEN (a Porter API token for project 15081).
+"on":
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "vendor/**"
+      - "docker/**"
+      - "porter.dev.yaml"
+      - "package.json"
+      - "bun.lock"
+      - "bunfig.toml"
+      - ".github/workflows/porter-linklingo-miniapp-dev.yml"
+  workflow_dispatch: {}
+name: Deploy to linklingo-miniapp-dev
+jobs:
+  porter-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set Github tag
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      - name: Setup porter
+        uses: porter-dev/setup-porter@v0.1.0
+      - name: Deploy stack
+        timeout-minutes: 30
+        run: porter apply -w -f porter.dev.yaml
+        env:
+          PORTER_APP_NAME: linklingo-miniapp-dev
+          PORTER_CLUSTER: "5783"
+          PORTER_DEPLOYMENT_TARGET_ID: 95380467-4a76-458d-b12a-df66cf0c362b
+          PORTER_HOST: https://dashboard.porter.run
+          PORTER_PROJECT: "15081"
+          PORTER_TAG: ${{ steps.vars.outputs.sha_short }}
+          PORTER_TOKEN: ${{ secrets.PORTER_DEPLOY_TOKEN }}
