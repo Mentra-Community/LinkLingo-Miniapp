@@ -1,0 +1,11 @@
+{
+  "name": "linklingo-miniapp-client",
+  "private": true,
+  "scripts": {
+    "dev": "mentra-miniapp dev",
+    "build": "bun run build.ts",
+    "typecheck": "tsc --noEmit",
+    "release": "mentra-miniapp release",
+    "pack": "mentra-miniapp pack"
+  }
+}

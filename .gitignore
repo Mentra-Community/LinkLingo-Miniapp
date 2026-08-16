@@ -1,0 +1,16 @@
+node_modules/
+
+.env
+.env.local
+.env.*.local
+
+/miniapp/dist/
+/miniapp/build/
+/backend/dist/
+*.zip
+.mentra/
+
+.DS_Store
+*.tsbuildinfo
+.idea/
+.vscode/

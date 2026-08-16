@@ -1,0 +1,1 @@
+{"version":3,"file":"auto.d.ts","sourceRoot":"","sources":["../../src/transport/auto.ts"],"names":[],"mappings":"AAAA;;GAEG;AAMH,OAAO,EAAC,SAAS,EAAsD,MAAM,SAAS,CAAA;AAItF,MAAM,WAAW,sBAAsB;IACrC,uDAAuD;IACvD,SAAS,CAAC,EAAE,SAAS,CAAA;IACrB,+DAA+D;IAC/D,cAAc,CAAC,EAAE,MAAM,CAAA;CACxB;AAED;;;;;;;;;;;;;;;;;;;;;;GAsBG;AACH,wBAAgB,eAAe,CAAC,OAAO,GAAE,sBAA2B,GAAG,SAAS,CA0B/E"}

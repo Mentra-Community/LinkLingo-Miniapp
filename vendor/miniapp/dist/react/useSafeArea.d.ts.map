@@ -1,0 +1,1 @@
+{"version":3,"file":"useSafeArea.d.ts","sourceRoot":"","sources":["../../src/react/useSafeArea.ts"],"names":[],"mappings":"AAAA;;;;;;;GAOG;AAIH,OAAO,EAEL,KAAK,sBAAsB,EAC3B,KAAK,qBAAqB,EAC3B,MAAM,YAAY,CAAA;AAInB,MAAM,WAAW,iBAAiB;IAChC,sFAAsF;IACtF,MAAM,EAAE,qBAAqB,CAAA;IAC7B;;;;OAIG;IACH,WAAW,EAAE,sBAAsB,GAAG,IAAI,CAAA;CAC3C;AAED,wBAAgB,WAAW,IAAI,iBAAiB,CAS/C"}

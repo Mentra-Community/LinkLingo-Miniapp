@@ -1,0 +1,60 @@
+/**
+ * @mentra/miniapp — SDK for building MentraOS local miniapps.
+ *
+ * Public entry point. Consumers do:
+ *
+ *   import {MiniappSession} from "@mentra/miniapp"            // background JSContext
+ *   import {useColorScheme} from "@mentra/miniapp/react"      // UI WebView hooks
+ *   import {MiniappRequestType} from "@mentra/miniapp/protocol"
+ */
+export { MiniappSession, NotConnectedError } from "./session";
+export type { AuthUpdatePayload, ConnectAckPayload, GlassesCapabilities, MiniappAuthState, MiniappRequestError, MiniappSessionOptions, MiniappVisibility, } from "./session";
+export type { AuthFetchOptions, AuthModule } from "./modules/auth";
+export { makeRequestId, parseEnvelope, serializeEnvelope } from "./envelope";
+export type { MiniappEnvelope } from "./envelope";
+export { getMentraOSGlobals } from "./globals";
+export type { MentraOSGlobals, MiniappCapsuleMenuRect, MiniappColorScheme, MiniappSafeAreaInsets } from "./globals";
+export { MiniappErrorCode, MiniappRequestType, MiniappResponseType, MiniappStreamType } from "./protocol";
+export { CLOUD_STATUS_STREAM } from "./modules/cloud";
+export type { CloudClientAudioTransport, CloudClientConnectionStatus, CloudClientStatus } from "./modules/cloud";
+export { HardwareType, HardwareRequirementLevel } from "@mentra/types";
+export type { HardwareRequirement } from "@mentra/types";
+export { createTransport } from "./transport/auto";
+export type { CreateTransportOptions } from "./transport/auto";
+export { PostMessageTransport } from "./transport/postmessage";
+export { LocalSocketTransport } from "./transport/local-socket";
+export type { LocalSocketTransportOptions } from "./transport/local-socket";
+export { MockTransport, isMockExplicitlyRequested } from "./transport/mock";
+export type { MockTransportOptions } from "./transport/mock";
+export type { Transport, TransportDisconnectHandler, TransportMessageHandler } from "./transport/types";
+export type { BitmapView, ClearView, DashboardCard, DisplayOptions, DoubleTextWall, Layout, LayoutType, ReferenceCard, TextWall, ViewType, } from "./modules/display";
+export { CanvasOperation } from "./modules/canvas";
+export type { BaseOptions as CanvasBaseOptions, Box as CanvasBox, BitmapOptions as CanvasBitmapOptions, ClearOptions as CanvasClearOptions, TextOptions as CanvasTextOptions, } from "./modules/canvas";
+export type { AccelData, AudioChunkData, BatteryData, ButtonPressData, CalendarEventData, ConnectionData, HeadingData, HeadPositionData, LocationData, NotificationDismissedData, PhoneNotificationData, TouchData, TranscriptionData, TranslationData, UnsubscribeFn, VadData, WifiData, } from "./modules/events";
+export type { PlayAudioOptions, SpeakOptions, SpeakResult, SpeakerState, SpeakerStateEvent } from "./modules/speaker";
+export type { CameraFovPreset, CameraFovRequest, CameraFovResult, CameraRoiPosition, PhotoTaken, SetCameraFovOptions, StartVideoRecordingOptions, StopVideoRecordingOptions, TakePhotoOptions, VideoRecordingStarted, } from "./modules/camera";
+export type { DashboardMode } from "./modules/dashboard";
+export type { CloudModule } from "./modules/cloud";
+export type { LedColor, LedControlOptions } from "./modules/led";
+export type { RestreamDestination, StartStreamOptions, StreamAudioConfig, StreamResolvedConfig, StreamResult, StreamStatus, StreamVideoConfig, } from "./modules/stream";
+export type { ShareOptions, ShareResult, DownloadOptions, DownloadResult } from "./modules/system";
+export type { MiniappInfo, MiniappActionInfo, MiniappCompatibility, ListMiniappsOptions } from "./modules/miniapps";
+export type { ActionContext, ActionHandler, InvokeOptions } from "./modules/actions";
+export type { DisplayManager } from "./modules/display";
+export type { CanvasManager } from "./modules/canvas";
+export type { MiniappsModule } from "./modules/miniapps";
+export type { ActionsModule } from "./modules/actions";
+export type { GlassesModule } from "./modules/glasses";
+export type { HeadingModule } from "./modules/heading";
+export type { ImuModule } from "./modules/imu";
+export type { InputModule } from "./modules/input";
+export type { LocationModule } from "./modules/location";
+export type { MicModule } from "./modules/mic";
+export type { ComputedRoute, ComputedRouteStep, ComputeRouteOptions, ComputeRouteResult, LatLng, NavArrived, NavError, NavigationModule, NavManeuver, NavOffRoute, NavPermissionResult, NavPlaceDetails, NavPlaceSuggestion, NavRerouting, NavRoute, NavState, NavStep, NavUpdate, Pivot, PivotEvent, PivotOptions, RouteAvoidances, StartNavigationOptions, TravelMode, } from "./modules/navigation";
+export type { PermissionsModule, PermissionErrorEvent } from "./modules/permissions";
+export type { PhoneModule, PhoneNotificationsModule, PhoneCalendarModule } from "./modules/phone";
+export type { TranscriptionModule, TranscriptionConfig } from "./modules/transcription";
+export type { TranslationModule } from "./modules/translation";
+export type { SpeakerModule } from "./modules/speaker";
+export type { PermissionType, PermissionRecord } from "./session";
+//# sourceMappingURL=index.d.ts.map

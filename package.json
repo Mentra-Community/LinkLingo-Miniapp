@@ -1,0 +1,47 @@
+{
+  "name": "linklingo-miniapp",
+  "private": true,
+  "version": "1.0.0",
+  "description": "LinkLingo as a local MentraOS miniapp. Live rare-word glossing, captions, and translation on smart glasses, backed by a slim Gemini backend.",
+  "workspaces": [
+    "vendor/*"
+  ],
+  "scripts": {
+    "dev": "MENTRA_PUBLIC_LINKLINGO_BACKEND_URL=https://linklingo-miniapp-dev.mentraglass.com bun run miniapp:dev",
+    "dev:local": "sh -c 'LINKLINGO_PORT=${LINKLINGO_PORT:-3240}; export MENTRA_PUBLIC_LINKLINGO_BACKEND_URL=${MENTRA_PUBLIC_LINKLINGO_BACKEND_URL:-http://localhost:3240}; echo \"[dev:local] backend :$LINKLINGO_PORT  ·  miniapp -> $MENTRA_PUBLIC_LINKLINGO_BACKEND_URL\"; pids=\"\"; cleanup() { kill $pids 2>/dev/null; }; trap cleanup EXIT INT TERM; PORT=$LINKLINGO_PORT bun --watch backend/src/index.ts & pids=\"$pids $!\"; bun run miniapp:dev & pids=\"$pids $!\"; wait'",
+    "dev:doppler": "doppler run --project linklingo --config dev --preserve-env -- bun run dev:local",
+    "backend:dev": "bun --watch backend/src/index.ts",
+    "backend:dev:doppler": "doppler run --project linklingo --config dev --preserve-env -- sh -c 'PORT=${LINKLINGO_PORT:-3240} bun --watch backend/src/index.ts'",
+    "backend:start": "bun backend/src/index.ts",
+    "miniapp:dev": "cd miniapp && bun ../node_modules/.bin/mentra-miniapp dev",
+    "miniapp:build": "cd miniapp && bun run build.ts",
+    "miniapp:release": "cd miniapp && bun ../node_modules/.bin/mentra-miniapp release",
+    "miniapp:pack": "cd miniapp && VERSION=$(node -p \"require('./miniapp.json').version\") && rm -f build/com.mentra.link-$VERSION.zip && mkdir -p build && cd dist && zip -qr ../build/com.mentra.link-$VERSION.zip .",
+    "build": "bun run miniapp:build",
+    "pack": "MENTRA_PUBLIC_LINKLINGO_BACKEND_URL=https://linklingo-miniapp-dev.mentraglass.com bun run miniapp:build && bun run miniapp:pack",
+    "typecheck": "bun run typecheck:backend && bun run typecheck:miniapp",
+    "typecheck:backend": "cd backend && tsc -p tsconfig.json --noEmit",
+    "typecheck:miniapp": "cd miniapp && tsc -p tsconfig.json --noEmit",
+    "test": "bun test backend/src/services miniapp/src/background",
+    "freq:build": "bun backend/scripts/build-frequency-data.ts",
+    "sync-vendor": "bash scripts/sync-vendor.sh"
+  },
+  "dependencies": {
+    "@mentra/auth": "workspace:*",
+    "@mentra/miniapp": "workspace:*",
+    "@node-rs/jieba": "^2.0.1",
+    "hono": "^4.11.1",
+    "pinyin-pro": "^3.26.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwindcss": "^4.1.17"
+  },
+  "devDependencies": {
+    "@mentra/miniapp-cli": "workspace:*",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "bun-plugin-tailwind": "^0.1.2",
+    "bun-types": "^1.3.14",
+    "typescript": "^5.8.3"
+  }
+}

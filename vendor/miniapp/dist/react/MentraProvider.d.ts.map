@@ -1,0 +1,1 @@
+{"version":3,"file":"MentraProvider.d.ts","sourceRoot":"","sources":["../../src/react/MentraProvider.tsx"],"names":[],"mappings":"AAAA;;;;;;;;;;;;;;;;;GAiBG;AAEH,OAAO,EAAC,KAAK,SAAS,EAAC,MAAM,OAAO,CAAA;AAIpC,MAAM,WAAW,mBAAmB;IAClC,QAAQ,EAAE,SAAS,CAAA;IACnB;;;;;;;OAOG;IACH,eAAe,CAAC,EAAE,OAAO,CAAA;CAC1B;AAED,wBAAgB,cAAc,CAAC,EAAC,QAAQ,EAAE,eAAsB,EAAC,EAAE,mBAAmB,+BAarF"}
