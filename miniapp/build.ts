@@ -3,7 +3,7 @@
  * MENTRA_PUBLIC_* env vars are inlined; secrets must stay on the backend.
  */
 
-import {copyFile, rm} from "fs/promises"
+import {copyFile, mkdir, rm} from "fs/promises"
 
 const distDir = "./dist"
 
@@ -53,4 +53,7 @@ if (!uiResult.success) {
 
 await copyFile("./miniapp.json", `${distDir}/miniapp.json`)
 await copyFile("./icon.png", `${distDir}/icon.png`)
-console.log("staged miniapp.json + icon.png into dist/")
+await mkdir(`${distDir}/licenses`, {recursive: true})
+await copyFile("../LICENSE", `${distDir}/LICENSE`)
+await copyFile("../vendor/miniapp/LICENSE", `${distDir}/licenses/mentra-miniapp-MIT.txt`)
+console.log("staged miniapp metadata and license notices into dist/")
