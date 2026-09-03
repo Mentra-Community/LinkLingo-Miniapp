@@ -1,6 +1,7 @@
 {
   "name": "linklingo-miniapp-client",
   "private": true,
+  "license": "Apache-2.0",
   "scripts": {
     "dev": "mentra-miniapp dev",
     "build": "bun run build.ts",
