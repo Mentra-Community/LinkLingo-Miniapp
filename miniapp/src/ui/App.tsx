@@ -1,19 +1,21 @@
 import {useEffect, useState} from "react"
 import {useColorScheme, useSafeArea} from "@mentra/miniapp/ui"
 
+import type {Channels} from "../shared/channels"
 import type {LinkLingoMode, LinkLingoSettings, LinkLingoSnapshot} from "../shared/types"
-import {DEFAULT_SETTINGS} from "../shared/types"
-import {LANGUAGES, languageName} from "./lib/languages"
+import {DEFAULT_SETTINGS, inputLanguage, outputLanguage} from "../shared/types"
+import {LANGUAGES, languageName, languageOptionLabel} from "./lib/languages"
 
 const MODES: Array<{id: LinkLingoMode; label: string}> = [
-  {id: "gloss", label: "Rare word glossing"},
-  {id: "gloss-captions", label: "Glossing + captions"},
-  {id: "translation", label: "Live translation + captions"},
+  {id: "gloss", label: "Words"},
+  {id: "gloss-captions", label: "Words + text"},
+  {id: "translation", label: "Translate"},
 ]
 
 export function App() {
-  const isDark = useColorScheme() === "dark"
+  const isDark = useColorScheme() !== "light"
   const {insets} = useSafeArea()
+  const [displayOpen, setDisplayOpen] = useState(false)
   const [snap, setSnap] = useState<LinkLingoSnapshot>({
     settings: DEFAULT_SETTINGS,
     words: [],
@@ -43,182 +45,316 @@ export function App() {
   }, [])
 
   const settings = snap.settings
-  const patch = <K extends keyof LinkLingoSettings>(key: K, channel: keyof import("../shared/channels").Channels, value: LinkLingoSettings[K]) => {
+  const heard = languageName(inputLanguage(settings))
+  const gloss = languageName(outputLanguage(settings))
+  const status = statusMeta(snap)
+
+  const setSetting = <K extends keyof LinkLingoSettings>(
+    key: K,
+    channel: keyof Channels,
+    payload: Channels[typeof channel],
+    value: LinkLingoSettings[K],
+  ) => {
     setSnap((s) => ({...s, settings: {...s.settings, [key]: value}}))
-    mentra.send(channel as never, {[key]: value} as never)
+    mentra.send(channel as never, payload as never)
+  }
+
+  const swapPair = () => {
+    const nextSource = settings.targetLanguage
+    const nextTarget = settings.sourceLanguage
+    setSnap((s) => ({
+      ...s,
+      settings: {...s.settings, sourceLanguage: nextSource, targetLanguage: nextTarget, swapDirection: false},
+    }))
+    mentra.send("link:set-source-language", {language: nextSource})
+    mentra.send("link:set-target-language", {language: nextTarget})
+    if (settings.swapDirection) {
+      mentra.send("link:set-swap-direction", {swapDirection: false})
+    }
   }
 
   return (
     <div
-      className={`min-h-screen ${isDark ? "bg-zinc-950 text-zinc-100" : "bg-zinc-100 text-zinc-900"}`}
+      className={`screen ${isDark ? "theme-dark" : "theme-light"}`}
       style={{paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right}}>
-      <div className="max-w-lg mx-auto p-4 space-y-5">
-        <header>
-          <h1 className="text-2xl font-semibold">LinkLingo</h1>
-          <p className="text-sm opacity-70">Learn from live speech on your glasses.</p>
+      <div className="wrap">
+        <header className="topbar">
+          <div className="brand">
+            <span className="kicker">Glasses tutor</span>
+            <h1>LinkLingo</h1>
+            <p className="lede">
+              Hear {heard}. See {gloss}.
+            </p>
+          </div>
+          <div className={`status-pill ${status.tone}`}>
+            <span className="status-dot" />
+            {status.label}
+          </div>
         </header>
 
-        <section className="rounded-2xl p-4 space-y-2 bg-white/80 dark:bg-zinc-900">
-          <h2 className="text-sm font-medium opacity-70">Live</h2>
-          {snap.words.length > 0 ? (
-            <ul className="space-y-1">
-              {snap.words.map((w) => (
-                <li key={`${w.word}-${w.at}`} className="text-lg">
-                  {w.isUpgrade ? "^ " : ""}
-                  <span className="font-medium">{w.word}</span>
-                  <span className="opacity-50"> → </span>
-                  {w.translation}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="opacity-50">No glossed words yet.</p>
-          )}
-          {settings.mode !== "translation" && snap.caption ? (
-            <p className="text-sm opacity-80">{snap.caption}</p>
-          ) : null}
-          {settings.mode === "translation" ? (
-            <div className="text-sm space-y-1">
-              <p>{snap.translation}</p>
-              <p className="opacity-60">{snap.original}</p>
+        <div className="stack">
+          <section className="card live-card">
+            <div className="card-head">
+              <h2 className="card-title">Live</h2>
+              <span className="meta">
+                {snap.processing ? "Glossing…" : latency(snap)}
+              </span>
             </div>
-          ) : null}
-          <p className="text-xs opacity-50">
-            {snap.processing ? "Glossing…" : snap.backend.status}
-            {snap.profiling?.clientRoundTripMs != null ? ` · ${snap.profiling.clientRoundTripMs}ms` : ""}
-            {snap.profiling?.geminiMs != null ? ` · model ${snap.profiling.geminiMs}ms` : ""}
-          </p>
-        </section>
+            {snap.words.length > 0 ? (
+              <div className="words">
+                {snap.words.map((word) => (
+                  <div key={`${word.word}-${word.at}`} className={`word-chip${word.isUpgrade ? " upgrade" : ""}`}>
+                    <b>{word.word}</b>
+                    <small>{word.translation}</small>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-live">
+                <strong>Listening for {heard}</strong>
+                <span>Rare words and upgrades will stack here as people talk around you.</span>
+              </div>
+            )}
+            {settings.mode !== "translation" && snap.caption ? <p className="caption">{snap.caption}</p> : null}
+            {settings.mode === "translation" && (snap.translation || snap.original) ? (
+              <>
+                <p className="translation">{snap.translation}</p>
+                <p className="original">{snap.original}</p>
+              </>
+            ) : null}
+            {snap.backend.lastError ? <p className="hint">{snap.backend.lastError}</p> : null}
+          </section>
 
-        <section className="rounded-2xl p-4 space-y-3 bg-white/80 dark:bg-zinc-900">
-          <h2 className="text-sm font-medium opacity-70">Languages</h2>
-          <label className="block text-sm">
-            Source
-            <select
-              className="mt-1 w-full rounded-lg p-2 bg-zinc-100 dark:bg-zinc-800"
-              value={settings.sourceLanguage}
-              onChange={(e) => patch("sourceLanguage", "link:set-source-language", e.target.value)}>
-              {LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm">
-            Target
-            <select
-              className="mt-1 w-full rounded-lg p-2 bg-zinc-100 dark:bg-zinc-800"
-              value={settings.targetLanguage}
-              onChange={(e) => patch("targetLanguage", "link:set-target-language", e.target.value)}>
-              {LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={settings.swapDirection}
-              onChange={(e) => patch("swapDirection", "link:set-swap-direction", e.target.checked)}
-            />
-            Transcribe the target language (swap direction)
-          </label>
-          <p className="text-xs opacity-50">
-            Listening: {languageName(settings.swapDirection ? settings.targetLanguage : settings.sourceLanguage)}
-          </p>
-        </section>
+          <section className="card">
+            <div className="card-head">
+              <h2 className="card-title">Languages</h2>
+            </div>
+            <div className="pair">
+              <div className="lang">
+                <label htmlFor="source-language">Hearing</label>
+                <select
+                  id="source-language"
+                  className="select"
+                  value={settings.sourceLanguage}
+                  onChange={(e) =>
+                    setSetting("sourceLanguage", "link:set-source-language", {language: e.target.value}, e.target.value)
+                  }>
+                  {LANGUAGES.map((language) => (
+                    <option key={language.code} value={language.code}>
+                      {languageOptionLabel(language.code)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button type="button" className="swap" aria-label="Swap languages" onClick={swapPair}>
+                ⇄
+              </button>
+              <div className="lang">
+                <label htmlFor="target-language">Show in</label>
+                <select
+                  id="target-language"
+                  className="select"
+                  value={settings.targetLanguage}
+                  onChange={(e) =>
+                    setSetting("targetLanguage", "link:set-target-language", {language: e.target.value}, e.target.value)
+                  }>
+                  {LANGUAGES.map((language) => (
+                    <option key={language.code} value={language.code}>
+                      {languageOptionLabel(language.code)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <p className="hint">
+              Gloss {heard} speech into {gloss}. Swap if you want the other way.
+            </p>
+          </section>
 
-        <section className="rounded-2xl p-4 space-y-3 bg-white/80 dark:bg-zinc-900">
-          <h2 className="text-sm font-medium opacity-70">Learning</h2>
-          <label className="block text-sm">
-            Proficiency {settings.proficiency}
+          <section className="card">
+            <div className="card-head">
+              <h2 className="card-title">Mode</h2>
+            </div>
+            <div className="seg" role="tablist" aria-label="Learning mode">
+              {MODES.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={settings.mode === mode.id}
+                  className={settings.mode === mode.id ? "on" : ""}
+                  onClick={() => setSetting("mode", "link:set-mode", {mode: mode.id}, mode.id)}>
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="card-head">
+              <h2 className="card-title">Learning</h2>
+              <span className="meta">{proficiencyLabel(settings.proficiency)}</span>
+            </div>
             <input
+              className="slider"
               type="range"
               min={0}
               max={100}
               value={settings.proficiency}
-              className="w-full"
-              onChange={(e) => patch("proficiency", "link:set-proficiency", Number(e.target.value))}
-            />
-          </label>
-          <div className="space-y-2">
-            {MODES.map((mode) => (
-              <label key={mode.id} className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="mode"
-                  checked={settings.mode === mode.id}
-                  onChange={() => patch("mode", "link:set-mode", mode.id)}
-                />
-                {mode.label}
-              </label>
-            ))}
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={settings.wordUpgrades}
-              disabled={settings.mode === "translation"}
-              onChange={(e) => patch("wordUpgrades", "link:set-word-upgrades", e.target.checked)}
-            />
-            Word upgrades
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={settings.pinyinDisplay}
-              onChange={(e) => patch("pinyinDisplay", "link:set-pinyin-display", e.target.checked)}
-            />
-            Show pinyin for Chinese
-          </label>
-        </section>
-
-        <section className="rounded-2xl p-4 space-y-3 bg-white/80 dark:bg-zinc-900">
-          <h2 className="text-sm font-medium opacity-70">Display</h2>
-          <label className="block text-sm">
-            Caption lines {settings.displayLines}
-            <input
-              type="range"
-              min={2}
-              max={5}
-              value={settings.displayLines}
-              className="w-full"
-              onChange={(e) => patch("displayLines", "link:set-display-lines", Number(e.target.value))}
-            />
-          </label>
-          <label className="block text-sm">
-            Width
-            <select
-              className="mt-1 w-full rounded-lg p-2 bg-zinc-100 dark:bg-zinc-800"
-              value={settings.displayWidth}
+              aria-label="Proficiency"
               onChange={(e) =>
-                patch("displayWidth", "link:set-display-width", Number(e.target.value) as 0 | 1 | 2)
-              }>
-              <option value={0}>Narrow</option>
-              <option value={1}>Medium</option>
-              <option value={2}>Wide</option>
-            </select>
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={settings.wordBreaking}
-              onChange={(e) => patch("wordBreaking", "link:set-word-breaking", e.target.checked)}
+                setSetting("proficiency", "link:set-proficiency", {proficiency: Number(e.target.value)}, Number(e.target.value))
+              }
             />
-            Break mid-word
-          </label>
-        </section>
+            <div className="level">
+              <span>Beginner</span>
+              <b>{settings.proficiency}</b>
+              <span>Advanced</span>
+            </div>
+            <div className="rows">
+              <ToggleRow
+                title="Word upgrades"
+                detail="Also show harder synonyms you should learn"
+                checked={settings.wordUpgrades}
+                disabled={settings.mode === "translation"}
+                onChange={(wordUpgrades) =>
+                  setSetting("wordUpgrades", "link:set-word-upgrades", {wordUpgrades}, wordUpgrades)
+                }
+              />
+              <ToggleRow
+                title="Pinyin"
+                detail="Add pronunciation under Chinese"
+                checked={settings.pinyinDisplay}
+                onChange={(pinyinDisplay) =>
+                  setSetting("pinyinDisplay", "link:set-pinyin-display", {pinyinDisplay}, pinyinDisplay)
+                }
+              />
+            </div>
+          </section>
 
-        <button
-          type="button"
-          className="w-full rounded-xl py-3 bg-teal-700 text-white"
-          onClick={() => mentra.send("link:clear", {})}>
-          Clear HUD
-        </button>
+          <section className="card">
+            <button
+              type="button"
+              className="disclosure"
+              aria-expanded={displayOpen}
+              onClick={() => setDisplayOpen((open) => !open)}>
+              <h2 className="card-title">Glasses display</h2>
+              <span className={`chevron${displayOpen ? " open" : ""}`}>›</span>
+            </button>
+            {displayOpen ? (
+              <div className="display-body">
+                <label className="row-copy">
+                  <strong>Caption lines · {settings.displayLines}</strong>
+                  <input
+                    className="slider"
+                    type="range"
+                    min={2}
+                    max={5}
+                    value={settings.displayLines}
+                    onChange={(e) =>
+                      setSetting(
+                        "displayLines",
+                        "link:set-display-lines",
+                        {displayLines: Number(e.target.value)},
+                        Number(e.target.value),
+                      )
+                    }
+                  />
+                </label>
+                <label className="row">
+                  <span className="row-copy">
+                    <strong>Width</strong>
+                    <span>How much HUD real estate to use</span>
+                  </span>
+                  <select
+                    className="select"
+                    style={{width: 132, minHeight: 44, fontSize: 14}}
+                    value={settings.displayWidth}
+                    onChange={(e) =>
+                      setSetting(
+                        "displayWidth",
+                        "link:set-display-width",
+                        {displayWidth: Number(e.target.value) as 0 | 1 | 2},
+                        Number(e.target.value) as 0 | 1 | 2,
+                      )
+                    }>
+                    <option value={0}>Narrow</option>
+                    <option value={1}>Medium</option>
+                    <option value={2}>Wide</option>
+                  </select>
+                </label>
+                <ToggleRow
+                  title="Break mid-word"
+                  detail="Wrap long HUD lines more aggressively"
+                  checked={settings.wordBreaking}
+                  onChange={(wordBreaking) =>
+                    setSetting("wordBreaking", "link:set-word-breaking", {wordBreaking}, wordBreaking)
+                  }
+                />
+              </div>
+            ) : null}
+          </section>
+
+          <div className="actions">
+            <button type="button" className="danger" onClick={() => mentra.send("link:clear", {})}>
+              Clear HUD
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
+}
+
+function ToggleRow({
+  title,
+  detail,
+  checked,
+  disabled,
+  onChange,
+}: {
+  title: string
+  detail: string
+  checked: boolean
+  disabled?: boolean
+  onChange: (next: boolean) => void
+}) {
+  return (
+    <div className="row">
+      <span className="row-copy">
+        <strong>{title}</strong>
+        <span>{detail}</span>
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={title}
+        disabled={disabled}
+        className={`switch${checked ? " on" : ""}`}
+        onClick={() => onChange(!checked)}
+      />
+    </div>
+  )
+}
+
+function proficiencyLabel(value: number): string {
+  if (value < 34) return "Beginner"
+  if (value < 67) return "Intermediate"
+  return "Advanced"
+}
+
+function latency(snap: LinkLingoSnapshot): string {
+  const parts = []
+  if (snap.profiling?.clientRoundTripMs != null) parts.push(`${snap.profiling.clientRoundTripMs}ms`)
+  if (snap.profiling?.geminiMs != null) parts.push(`model ${snap.profiling.geminiMs}ms`)
+  return parts.join(" · ") || "Ready"
+}
+
+function statusMeta(snap: LinkLingoSnapshot): {label: string; tone: string} {
+  if (snap.processing) return {label: "Glossing", tone: "busy"}
+  if (snap.backend.status === "error") return {label: "Error", tone: "bad"}
+  if (snap.backend.status === "ok") return {label: "Live", tone: "good"}
+  if (snap.backend.status === "mock") return {label: "Demo", tone: "warn"}
+  return {label: "Ready", tone: "idle"}
 }

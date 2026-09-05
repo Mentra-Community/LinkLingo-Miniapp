@@ -15,9 +15,11 @@ glossApi.post("/", async (c) => {
     return c.json(await glossService.gloss(body))
   } catch (error) {
     if (error instanceof LlmServiceError) {
+      console.error(`[gloss] ${error.status}: ${error.message}`)
       return c.json({error: error.message, words: []}, error.status)
     }
     const message = error instanceof Error ? error.message : "Unknown error"
+    console.error(`[gloss] 500: ${message}`, error instanceof Error ? error.stack : "")
     return c.json({error: message, words: []}, 500)
   }
 })

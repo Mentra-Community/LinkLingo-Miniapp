@@ -1,6 +1,7 @@
 export type LinkLingoMode = "gloss" | "gloss-captions" | "translation"
 
 export interface LinkLingoSettings {
+  schemaVersion?: number
   sourceLanguage: string
   targetLanguage: string
   swapDirection: boolean
@@ -13,9 +14,12 @@ export interface LinkLingoSettings {
   pinyinDisplay: boolean
 }
 
+export const SETTINGS_SCHEMA_VERSION = 2
+
 export const DEFAULT_SETTINGS: LinkLingoSettings = {
-  sourceLanguage: "en",
-  targetLanguage: "zh",
+  schemaVersion: SETTINGS_SCHEMA_VERSION,
+  sourceLanguage: "zh",
+  targetLanguage: "en",
   swapDirection: false,
   proficiency: 33,
   mode: "gloss-captions",

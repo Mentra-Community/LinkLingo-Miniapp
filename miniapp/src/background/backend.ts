@@ -15,8 +15,34 @@ export interface UpgradeApiResult {
   profiling: LinkLingoProfiling
 }
 
+export type BackendResult<T> = {ok: true; data: T} | {ok: false; message: string}
+
 function url(path: string): string {
   return `${BACKEND_URL.replace(/\/$/, "")}${path}`
+}
+
+/**
+ * The backend reports why a call failed in the body. Surfacing that instead of
+ * a bare status is the difference between "gloss 500" and knowing the LLM quota
+ * is gone.
+ */
+async function describeFailure(label: string, res: Response): Promise<string> {
+  let detail = ""
+  try {
+    const text = await res.text()
+    try {
+      detail = (JSON.parse(text) as {error?: string}).error ?? text
+    } catch {
+      detail = text
+    }
+  } catch {
+    detail = ""
+  }
+  console.warn(`[linklingo] ${label} ${res.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`)
+  if (res.status === 429) return "Translation quota exhausted"
+  if (res.status === 503) return "Translation service unavailable"
+  if (res.status === 401 || res.status === 403) return "Sign-in expired"
+  return `${label} failed (${res.status})`
 }
 
 export async function requestGloss(
@@ -28,7 +54,7 @@ export async function requestGloss(
     fluencyLevel: number
     recentWords: string[]
   },
-): Promise<GlossApiResult | null> {
+): Promise<BackendResult<GlossApiResult>> {
   const started = Date.now()
   try {
     const res = await session.auth.fetch(url("/api/gloss"), {
@@ -37,17 +63,19 @@ export async function requestGloss(
       body: JSON.stringify(body),
     })
     if (!res.ok) {
-      console.warn(`[linklingo] gloss ${res.status}`)
-      return null
+      return {ok: false, message: await describeFailure("gloss", res)}
     }
     const data = (await res.json()) as GlossApiResult
     return {
-      words: data.words ?? [],
-      profiling: {...data.profiling, clientRoundTripMs: Date.now() - started},
+      ok: true,
+      data: {
+        words: data.words ?? [],
+        profiling: {...data.profiling, clientRoundTripMs: Date.now() - started},
+      },
     }
   } catch (err) {
     console.warn("[linklingo] gloss failed", err)
-    return null
+    return {ok: false, message: "Cannot reach LinkLingo backend"}
   }
 }
 
@@ -60,7 +88,7 @@ export async function requestUpgrade(
     fluencyLevel: number
     recentUpgrades: string[]
   },
-): Promise<UpgradeApiResult | null> {
+): Promise<BackendResult<UpgradeApiResult>> {
   const started = Date.now()
   try {
     const res = await session.auth.fetch(url("/api/upgrade"), {
@@ -69,16 +97,15 @@ export async function requestUpgrade(
       body: JSON.stringify(body),
     })
     if (!res.ok) {
-      console.warn(`[linklingo] upgrade ${res.status}`)
-      return null
+      return {ok: false, message: await describeFailure("upgrade", res)}
     }
     const data = (await res.json()) as UpgradeApiResult
     return {
-      ...data,
-      profiling: {...data.profiling, clientRoundTripMs: Date.now() - started},
+      ok: true,
+      data: {...data, profiling: {...data.profiling, clientRoundTripMs: Date.now() - started}},
     }
   } catch (err) {
     console.warn("[linklingo] upgrade failed", err)
-    return null
+    return {ok: false, message: "Cannot reach LinkLingo backend"}
   }
 }

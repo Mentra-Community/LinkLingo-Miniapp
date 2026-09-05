@@ -1,6 +1,7 @@
 import {Hono} from "hono"
 import {cors} from "hono/cors"
 
+import {apiKeyFingerprint, resolveApiKeySource} from "../services/gemini"
 import {glossService} from "../services/gloss.service"
 import {glossApi} from "./gloss.api"
 import {upgradeApi} from "./upgrade.api"
@@ -23,6 +24,8 @@ export function createApp(): Hono {
       service: "linklingo-miniapp-backend",
       package: process.env.PACKAGE_NAME ?? "com.mentra.link",
       model: glossService.model,
+      llmKeySource: resolveApiKeySource() ?? null,
+      llmKeyFingerprint: apiKeyFingerprint() ?? null,
     }),
   )
 

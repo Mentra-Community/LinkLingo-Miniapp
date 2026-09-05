@@ -92,15 +92,15 @@ export class GlossEngine {
     })
     this.glossInFlight = false
     this.callbacks.onProcessing(false)
-    if (!result) {
-      this.callbacks.onBackendError("gloss failed")
+    if (!result.ok) {
+      this.callbacks.onBackendError(result.message)
       return
     }
-    this.callbacks.onProfiling(result.profiling)
+    this.callbacks.onProfiling(result.data.profiling)
     const now = Date.now()
     this.pruneRecent(now)
     const accepted: GlossedWord[] = []
-    for (const word of result.words) {
+    for (const word of result.data.words) {
       const key = bare(word.word)
       const last = this.recent.get(key)
       if (last && now - last < WORD_DEDUP_MS) continue
@@ -129,12 +129,17 @@ export class GlossEngine {
       recentUpgrades: this.recentUpgrades,
     })
     this.upgradeInFlight = false
-    if (!result?.word || !result.meaning) return
-    this.callbacks.onProfiling(result.profiling)
-    this.recentUpgrades = [...this.recentUpgrades, result.word, result.meaning].slice(-12)
+    if (!result.ok) {
+      this.callbacks.onBackendError(result.message)
+      return
+    }
+    const {word, meaning, profiling} = result.data
+    if (!word || !meaning) return
+    this.callbacks.onProfiling(profiling)
+    this.recentUpgrades = [...this.recentUpgrades, word, meaning].slice(-12)
     this.upgradeQueue.push({
-      word: result.word,
-      translation: result.meaning,
+      word,
+      translation: meaning,
       isUpgrade: true,
       at: Date.now(),
     })
