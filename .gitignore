@@ -14,3 +14,5 @@ node_modules/
 *.tsbuildinfo
 .idea/
 .vscode/
+linklingo-install-qr.png
+linklingo-install-qr.html

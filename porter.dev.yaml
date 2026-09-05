@@ -35,3 +35,4 @@ services:
       NODE_ENV: production
       PORT: "80"
       PACKAGE_NAME: com.mentra.link
+      MENTRA_AUTH_JWKS_URL: https://core.mentraglass.com/.well-known/jwks.json
