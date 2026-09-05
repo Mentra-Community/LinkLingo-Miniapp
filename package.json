@@ -22,7 +22,7 @@
     "typecheck": "bun run typecheck:backend && bun run typecheck:miniapp",
     "typecheck:backend": "cd backend && tsc -p tsconfig.json --noEmit",
     "typecheck:miniapp": "cd miniapp && tsc -p tsconfig.json --noEmit",
-    "test": "bun test backend/src/services miniapp/src/background",
+    "test": "LOG_LEVEL=silent bun test backend/src/observability backend/src/services miniapp/src/background",
     "freq:build": "bun backend/scripts/build-frequency-data.ts",
     "sync-vendor": "bash scripts/sync-vendor.sh"
   },

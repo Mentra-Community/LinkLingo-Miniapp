@@ -1,6 +1,10 @@
+import {createLogger} from "../observability/logger"
+import {metrics} from "../observability/metrics"
 import type {UpgradeRequest, UpgradeResponse} from "../shared-types"
 import {allowMockLlm, generateJson, resolveApiKey, resolveModel} from "./gemini"
 import {annotateChinese, isChinese, languageIsChinese, languageWantsPinyin} from "./pinyin"
+
+const log = createLogger("upgrade")
 
 const UPGRADE_SYSTEM = `You suggest one useful "upgrade" word for a language learner — a word they are not using yet that would help in this conversation.
 
@@ -35,13 +39,24 @@ export class UpgradeService {
     const started = Date.now()
     const context = (body.conversationContext ?? "").trim()
     const recent = (body.recentUpgrades ?? []).map((w) => w.toLowerCase())
+    const call = log.child({
+      in: body.inputLanguage,
+      out: body.outputLanguage,
+      fluency: body.fluencyLevel,
+    })
+    metrics.increment("upgrade_requests_total", {in: body.inputLanguage, out: body.outputLanguage})
+
     if (!context) {
+      metrics.increment("upgrade_outcomes_total", {outcome: "empty_context"})
+      call.info("upgrade skipped", {reason: "empty_context"})
       return {
         profiling: {totalMs: Date.now() - started, model: this.model, candidateCount: 0},
       }
     }
 
     if (!resolveApiKey() && allowMockLlm()) {
+      metrics.increment("upgrade_outcomes_total", {outcome: "mock"})
+      call.warn("serving mock upgrade: no API key and mock mode enabled")
       return {
         word: "practice",
         meaning: "practice",
@@ -62,27 +77,53 @@ export class UpgradeService {
       user,
       maxOutputTokens: 64,
       responseSchema: UPGRADE_SCHEMA,
+      operation: "upgrade",
     })
 
     let parsed: {word?: string; meaning?: string} = {}
     try {
       parsed = JSON.parse(result.text) as typeof parsed
-    } catch {
+    } catch (error) {
       parsed = {}
+      metrics.increment("upgrade_parse_failures_total")
+      call.error("model returned unparseable JSON", {
+        truncated: result.truncated,
+        finishReason: result.finishReason,
+        responseChars: result.text.length,
+        error,
+      })
     }
 
     let word = (parsed.word ?? "").trim()
     let meaning = (parsed.meaning ?? "").trim()
     const contextLower = context.toLowerCase()
-    if (
-      !word ||
-      !meaning ||
-      word.toLowerCase() === meaning.toLowerCase() ||
-      contextLower.includes(word.toLowerCase()) ||
-      contextLower.includes(meaning.toLowerCase()) ||
-      recent.includes(word.toLowerCase()) ||
-      recent.includes(meaning.toLowerCase())
-    ) {
+
+    // These filters used to collapse into one boolean, so a suggestion could be
+    // dropped for any of six reasons with no way to tell which.
+    const reject = !word
+      ? "missing_word"
+      : !meaning
+        ? "missing_meaning"
+        : word.toLowerCase() === meaning.toLowerCase()
+          ? "echo"
+          : contextLower.includes(word.toLowerCase())
+            ? "word_in_context"
+            : contextLower.includes(meaning.toLowerCase())
+              ? "meaning_in_context"
+              : recent.includes(word.toLowerCase())
+                ? "word_recent"
+                : recent.includes(meaning.toLowerCase())
+                  ? "meaning_recent"
+                  : null
+
+    if (reject) {
+      metrics.increment("upgrade_outcomes_total", {outcome: "rejected"})
+      metrics.increment("upgrade_rejected_total", {reason: reject})
+      call.info("upgrade rejected", {
+        reason: reject,
+        geminiMs: result.geminiMs,
+        totalMs: Date.now() - started,
+      })
       return {
         profiling: {
           totalMs: Date.now() - started,
@@ -101,11 +142,21 @@ export class UpgradeService {
       meaning = annotateChinese(meaning, languageWantsPinyin(body.outputLanguage))
     }
 
+    const totalMs = Date.now() - started
+    metrics.increment("upgrade_outcomes_total", {outcome: "suggested"})
+    metrics.observe("upgrade_total_duration", totalMs)
+    call.info("upgrade suggested", {
+      word,
+      totalMs,
+      geminiMs: result.geminiMs,
+      totalTokens: result.usage.totalTokens,
+    })
+
     return {
       word,
       meaning,
       profiling: {
-        totalMs: Date.now() - started,
+        totalMs,
         geminiMs: result.geminiMs,
         parseMs: result.parseMs,
         model: result.model,

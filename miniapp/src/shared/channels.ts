@@ -1,6 +1,7 @@
 import type {
   BackendStatus,
   GlossedWord,
+  LinkLingoDiagnostics,
   LinkLingoMode,
   LinkLingoProfiling,
   LinkLingoSettings,
@@ -16,6 +17,7 @@ export interface Channels {
   "link:processing": {processing: boolean}
   "link:backend-status": BackendStatus
   "link:profiling": LinkLingoProfiling
+  "link:diagnostics": LinkLingoDiagnostics
   "link:request-snapshot": {}
   "link:set-source-language": {language: string}
   "link:set-target-language": {language: string}

@@ -6,20 +6,41 @@ import {
   type LinkLingoMode,
   type LinkLingoSettings,
 } from "../shared/types"
+import {createLogger, diagnostics} from "./observability"
+
+const log = createLogger("settings")
 
 const KEY = "linklingo:settings"
 
 export async function loadSettings(session: MiniappSession): Promise<LinkLingoSettings> {
   try {
     const raw = await session.storage.get(KEY)
-    if (!raw) return {...DEFAULT_SETTINGS}
+    if (!raw) {
+      log.info("no stored settings; using factory defaults", {
+        source: DEFAULT_SETTINGS.sourceLanguage,
+        target: DEFAULT_SETTINGS.targetLanguage,
+      })
+      return {...DEFAULT_SETTINGS}
+    }
     const parsed = JSON.parse(raw) as Partial<LinkLingoSettings>
+    const fromVersion = parsed.schemaVersion ?? 1
     const next = migrateSettings(parsed)
-    if ((parsed.schemaVersion ?? 1) < SETTINGS_SCHEMA_VERSION) {
+    if (fromVersion < SETTINGS_SCHEMA_VERSION) {
+      diagnostics.increment("settings.migrations")
+      log.info("migrated stored settings", {
+        fromVersion,
+        toVersion: SETTINGS_SCHEMA_VERSION,
+        pairBefore: `${parsed.sourceLanguage ?? "?"}->${parsed.targetLanguage ?? "?"}`,
+        pairAfter: `${next.sourceLanguage}->${next.targetLanguage}`,
+      })
       await saveSettings(session, next)
     }
     return next
-  } catch {
+  } catch (err) {
+    // Falling back to defaults silently would look like the app forgetting
+    // every preference for no reason.
+    diagnostics.increment("settings.load_failures")
+    log.error("could not read stored settings; falling back to defaults", {error: err as Error})
     return {...DEFAULT_SETTINGS}
   }
 }

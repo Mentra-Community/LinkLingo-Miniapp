@@ -3,6 +3,11 @@ import {dict} from "@node-rs/jieba/dict"
 import {readFileSync} from "fs"
 import {join} from "path"
 
+import {createLogger} from "../observability/logger"
+import {metrics} from "../observability/metrics"
+
+const log = createLogger("frequency")
+
 const jieba = Jieba.withDict(dict)
 
 const LANG_ALIASES: Record<string, string> = {
@@ -53,6 +58,22 @@ interface LangDict {
 
 const cache = new Map<string, LangDict>()
 
+/**
+ * A dictionary that fails to load is not fatal — every token just scores as
+ * unknown and the model gets fed noise. Recording the failure is the only way
+ * to tell that apart from a genuinely rare vocabulary.
+ */
+const failedDicts = new Map<string, string>()
+
+export function dictionaryDiagnostics(): {
+  loaded: Record<string, number>
+  failed: Record<string, string>
+} {
+  const loaded: Record<string, number> = {}
+  for (const [lang, entry] of cache) loaded[lang] = entry.total
+  return {loaded, failed: Object.fromEntries(failedDicts)}
+}
+
 function normalizeLang(code: string): string {
   const key = code.toLowerCase().replace(/\(.*?\)/g, "").trim()
   const bare = key.split("-")[0] ?? key
@@ -61,15 +82,31 @@ function normalizeLang(code: string): string {
 
 function loadDict(lang: string): LangDict | null {
   if (cache.has(lang)) return cache.get(lang)!
+  if (failedDicts.has(lang)) return null
   const path = join(import.meta.dir, "../../data/freq", `${lang}.json`)
+  const started = Date.now()
   try {
     const words = JSON.parse(readFileSync(path, "utf8")) as string[]
     const ranks = new Map<string, number>()
     words.forEach((word, i) => ranks.set(word, i + 1))
     const loaded = {ranks, total: words.length || 1}
     cache.set(lang, loaded)
+    metrics.increment("dictionary_loads_total", {lang, outcome: "ok"})
+    log.info("frequency dictionary loaded", {
+      lang,
+      words: words.length,
+      loadMs: Date.now() - started,
+    })
     return loaded
-  } catch {
+  } catch (error) {
+    const reason = (error as Error).message
+    failedDicts.set(lang, reason)
+    metrics.increment("dictionary_loads_total", {lang, outcome: "failed"})
+    log.error("frequency dictionary unavailable; all tokens will score as unknown", {
+      lang,
+      path,
+      error: reason,
+    })
     return null
   }
 }

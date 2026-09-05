@@ -9,7 +9,10 @@ const distDir = "./dist"
 
 await rm(distDir, {recursive: true, force: true})
 
-const PUBLIC_VARS = ["MENTRA_PUBLIC_LINKLINGO_BACKEND_URL"] as const
+const PUBLIC_VARS = [
+  "MENTRA_PUBLIC_LINKLINGO_BACKEND_URL",
+  "MENTRA_PUBLIC_LINKLINGO_LOG_LEVEL",
+] as const
 
 const define: Record<string, string> = {}
 for (const k of PUBLIC_VARS) {

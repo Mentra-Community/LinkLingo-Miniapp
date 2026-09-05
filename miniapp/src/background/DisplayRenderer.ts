@@ -3,6 +3,9 @@ import type {MiniappSession} from "@mentra/miniapp/background"
 import {CaptionsFormatter, G1_PROFILE, type DisplayProfile} from "../core/CaptionsFormatter"
 import {convertToPinyin} from "../core/ChineseUtils"
 import type {GlossedWord, LinkLingoSettings} from "../shared/types"
+import {createLogger, diagnostics} from "./observability"
+
+const log = createLogger("display")
 
 const INACTIVITY_MS = 40_000
 const DISPLAY_MS = 20_000
@@ -52,7 +55,12 @@ export class DisplayRenderer {
     this.lastOriginal = ""
     this.lastWords = []
     this.formatter.clear()
-    this.session.display.clear()
+    try {
+      this.session.display.clear()
+    } catch (err) {
+      diagnostics.increment("display.clear_failures")
+      log.error("display clear failed", {error: err as Error})
+    }
     if (this.inactivityTimer) {
       clearTimeout(this.inactivityTimer)
       this.inactivityTimer = null
@@ -63,20 +71,44 @@ export class DisplayRenderer {
     const wordText = formatWords(this.lastWords)
     const breakMode = settings.wordBreaking ? "character" : "word"
     const options = {durationMs: DISPLAY_MS, breakMode: breakMode as "character" | "word"}
+    const started = Date.now()
 
-    if (settings.mode === "translation") {
-      this.session.display.showDoubleTextWall(this.lastTranslation, this.lastOriginal, options)
-    } else if (settings.mode === "gloss") {
-      this.session.display.showTextWall(wordText, options)
-    } else {
-      this.session.display.showDoubleTextWall(wordText, this.lastCaption, options)
+    // A throw here means nothing reaches the glasses while the phone UI still
+    // looks healthy, which is the hardest LinkLingo failure to diagnose.
+    try {
+      if (settings.mode === "translation") {
+        this.session.display.showDoubleTextWall(this.lastTranslation, this.lastOriginal, options)
+      } else if (settings.mode === "gloss") {
+        this.session.display.showTextWall(wordText, options)
+      } else {
+        this.session.display.showDoubleTextWall(wordText, this.lastCaption, options)
+      }
+      diagnostics.increment("display.paints")
+      diagnostics.observe("display.paintMs", Date.now() - started)
+    } catch (err) {
+      diagnostics.increment("display.paint_failures")
+      log.error("display paint failed", {
+        mode: settings.mode,
+        wordRows: this.lastWords.length,
+        error: err as Error,
+      })
+      return
     }
+
+    log.debug("painted hud", {
+      mode: settings.mode,
+      wordRows: this.lastWords.length,
+      captionChars: this.lastCaption.length,
+      paintMs: Date.now() - started,
+    })
     this.bumpInactivity()
   }
 
   private bumpInactivity(): void {
     if (this.inactivityTimer) clearTimeout(this.inactivityTimer)
     this.inactivityTimer = setTimeout(() => {
+      diagnostics.increment("display.inactivity_clears")
+      log.info("clearing hud after inactivity", {afterMs: INACTIVITY_MS})
       this.session.display.clear()
     }, INACTIVITY_MS)
   }

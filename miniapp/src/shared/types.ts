@@ -56,6 +56,23 @@ export interface BackendStatus {
   lastError?: string
 }
 
+export interface LinkLingoTiming {
+  count: number
+  avgMs: number
+  lastMs: number
+  maxMs: number
+}
+
+/** Running background counters, mirrored into the WebView for on-device inspection. */
+export interface LinkLingoDiagnostics {
+  startedAt: number
+  uptimeSeconds: number
+  counters: Record<string, number>
+  timings: Record<string, LinkLingoTiming>
+  lastError: string | null
+  lastErrorAt: number | null
+}
+
 export interface LinkLingoSnapshot {
   settings: LinkLingoSettings
   words: GlossedWord[]

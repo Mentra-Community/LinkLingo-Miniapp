@@ -3,7 +3,10 @@ import type {MiniappSession} from "@mentra/miniapp/background"
 import type {GlossedWord, LinkLingoProfiling, LinkLingoSettings} from "../shared/types"
 import {inputLanguage, outputLanguage} from "../shared/types"
 import {requestGloss, requestUpgrade} from "./backend"
+import {createLogger, diagnostics} from "./observability"
 import {hasSentenceEnd, stripIncompleteLastWord, type TranscriptBuffer} from "./TranscriptBuffer"
+
+const log = createLogger("engine")
 
 const GLOSS_COOLDOWN_MS = 2000
 const UPGRADE_COOLDOWN_MS = 8000
@@ -57,6 +60,11 @@ export class GlossEngine {
   }
 
   reset(): void {
+    log.debug("engine reset", {
+      recentWords: this.recent.size,
+      queuedUpgrades: this.upgradeQueue.length,
+    })
+    diagnostics.increment("engine.resets")
     this.pendingContext = null
     this.recent.clear()
     this.recentUpgrades = []
@@ -70,12 +78,24 @@ export class GlossEngine {
 
   private queueGloss(settings: LinkLingoSettings, now: number): void {
     const context = this.contextForCall(false)
-    if (!context) return
+    if (!context) {
+      diagnostics.increment("engine.gloss_skipped.no_context")
+      return
+    }
     if (this.glossInFlight) {
+      // Coalesced rather than dropped: the newest context replaces any older
+      // pending one and runs as soon as the in-flight call returns.
+      diagnostics.increment("engine.gloss_coalesced")
+      log.debug("gloss coalesced behind in-flight call", {contextChars: context.length})
       this.pendingContext = context
       return
     }
-    if (now - this.lastGlossAt < GLOSS_COOLDOWN_MS) return
+    const sinceLast = now - this.lastGlossAt
+    if (sinceLast < GLOSS_COOLDOWN_MS) {
+      diagnostics.increment("engine.gloss_skipped.cooldown")
+      log.debug("gloss suppressed by cooldown", {sinceLast, cooldownMs: GLOSS_COOLDOWN_MS})
+      return
+    }
     void this.runGloss(settings, context)
   }
 
@@ -100,17 +120,32 @@ export class GlossEngine {
     const now = Date.now()
     this.pruneRecent(now)
     const accepted: GlossedWord[] = []
+    let deduped = 0
     for (const word of result.data.words) {
       const key = bare(word.word)
       const last = this.recent.get(key)
-      if (last && now - last < WORD_DEDUP_MS) continue
+      if (last && now - last < WORD_DEDUP_MS) {
+        deduped += 1
+        continue
+      }
       this.recent.set(key, now)
       accepted.push({...word, at: now})
     }
+
+    if (deduped > 0) diagnostics.increment("engine.words_deduped", deduped)
+    diagnostics.increment("engine.words_shown", accepted.length)
+    log.info("gloss applied", {
+      returned: result.data.words.length,
+      shown: accepted.length,
+      deduped,
+      recentTracked: this.recent.size,
+    })
+
     if (accepted.length > 0) this.callbacks.onWords(accepted)
     if (this.pendingContext) {
       const next = this.pendingContext
       this.pendingContext = null
+      log.debug("running coalesced gloss")
       void this.runGloss(settings, next)
     }
   }
@@ -134,7 +169,11 @@ export class GlossEngine {
       return
     }
     const {word, meaning, profiling} = result.data
-    if (!word || !meaning) return
+    if (!word || !meaning) {
+      diagnostics.increment("engine.upgrade_empty")
+      return
+    }
+    diagnostics.increment("engine.upgrade_queued")
     this.callbacks.onProfiling(profiling)
     this.recentUpgrades = [...this.recentUpgrades, word, meaning].slice(-12)
     this.upgradeQueue.push({

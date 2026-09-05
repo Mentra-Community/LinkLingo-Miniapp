@@ -1,7 +1,14 @@
+import {createLogger} from "../observability/logger"
+import {metrics} from "../observability/metrics"
 import type {GlossRequest, GlossResponse, GlossedWord} from "../shared-types"
 import {candidateWords, fluencyThreshold} from "./frequency"
 import {allowMockLlm, generateJson, LlmServiceError, resolveApiKey, resolveModel} from "./gemini"
 import {annotateChinese, isChinese, languageIsChinese, languageWantsPinyin} from "./pinyin"
+
+const log = createLogger("gloss")
+
+/** Why a model-proposed word did not make it to the glasses. */
+type RejectReason = "empty" | "echo" | "recent" | "not_candidate"
 
 const GLOSS_SYSTEM = `You help a language learner by glossing unfamiliar words from live speech.
 
@@ -68,9 +75,36 @@ export class GlossService {
     const context = (body.conversationContext ?? "").trim()
     const recent = body.recentWords ?? []
     const threshold = fluencyThreshold(body.fluencyLevel ?? 50)
+    const call = log.child({
+      in: body.inputLanguage,
+      out: body.outputLanguage,
+      fluency: body.fluencyLevel,
+    })
+    const selectStarted = Date.now()
     const candidates = context ? candidateWords(context, body.inputLanguage, recent, threshold) : []
+    const selectMs = Date.now() - selectStarted
+
+    metrics.increment("gloss_requests_total", {
+      in: body.inputLanguage,
+      out: body.outputLanguage,
+    })
+    metrics.observe("gloss_candidate_selection_duration", selectMs)
+    call.debug("candidates selected", {
+      contextChars: context.length,
+      recentCount: recent.length,
+      threshold,
+      candidateCount: candidates.length,
+      selectMs,
+      topCandidates: candidates.slice(0, 5).map((c) => `${c.word}:${c.percentile}`).join(","),
+    })
 
     if (!context || candidates.length === 0) {
+      metrics.increment("gloss_outcomes_total", {outcome: context ? "no_candidates" : "empty_context"})
+      call.info("gloss skipped", {
+        reason: context ? "no_candidates" : "empty_context",
+        contextChars: context.length,
+        threshold,
+      })
       return {
         words: [],
         profiling: {totalMs: Date.now() - started, model: this.model, candidateCount: candidates.length},
@@ -79,6 +113,8 @@ export class GlossService {
 
     if (!resolveApiKey() && allowMockLlm()) {
       const first = candidates[0]
+      metrics.increment("gloss_outcomes_total", {outcome: "mock"})
+      call.warn("serving mock gloss: no API key and mock mode enabled")
       return {
         words: [annotatePair(first.word, first.word, body.inputLanguage, body.outputLanguage)],
         profiling: {
@@ -103,34 +139,84 @@ export class GlossService {
       user,
       maxOutputTokens: 128,
       responseSchema: GLOSS_SCHEMA,
+      operation: "gloss",
     })
 
     let parsed: {words?: Array<{word?: string; translation?: string}>} = {}
+    let parseFailed = false
     try {
       parsed = JSON.parse(result.text) as typeof parsed
-    } catch {
+    } catch (error) {
+      parseFailed = true
       parsed = {words: []}
+      metrics.increment("gloss_parse_failures_total")
+      call.error("model returned unparseable JSON", {
+        truncated: result.truncated,
+        finishReason: result.finishReason,
+        responseChars: result.text.length,
+        error,
+      })
     }
 
     const recentSet = new Set(recent.map((w) => w.toLowerCase().replace(/\s*\([^)]*\)/g, "").trim()))
     const candidateSet = new Set(candidates.map((c) => c.word.toLowerCase()))
     const words: GlossedWord[] = []
-    for (const item of parsed.words ?? []) {
+    const rejected: Array<{word: string; reason: RejectReason}> = []
+    const proposed = parsed.words ?? []
+
+    for (const item of proposed) {
       const word = (item.word ?? "").trim()
       const translation = (item.translation ?? "").trim()
-      if (!word || !translation) continue
-      if (word.toLowerCase() === translation.toLowerCase()) continue
+      const reject = (reason: RejectReason) => {
+        rejected.push({word: word || "(blank)", reason})
+        metrics.increment("gloss_word_rejected_total", {reason})
+      }
+      if (!word || !translation) {
+        reject("empty")
+        continue
+      }
+      if (word.toLowerCase() === translation.toLowerCase()) {
+        reject("echo")
+        continue
+      }
       const bare = word.toLowerCase().replace(/\s*\([^)]*\)/g, "").trim()
-      if (recentSet.has(bare)) continue
-      if (!candidateSet.has(bare) && !candidateSet.has(word.toLowerCase())) continue
+      if (recentSet.has(bare)) {
+        reject("recent")
+        continue
+      }
+      if (!candidateSet.has(bare) && !candidateSet.has(word.toLowerCase())) {
+        // The model invented a word outside the candidate list; the prompt
+        // forbids this, so a rising count here means prompt drift.
+        reject("not_candidate")
+        continue
+      }
       words.push(annotatePair(word, translation, body.inputLanguage, body.outputLanguage))
       if (words.length >= 2) break
     }
 
+    const totalMs = Date.now() - started
+    metrics.observe("gloss_total_duration", totalMs)
+    metrics.increment("gloss_outcomes_total", {
+      outcome: parseFailed ? "parse_failed" : words.length > 0 ? "words" : "no_words",
+    })
+    metrics.increment("gloss_words_emitted_total", {}, words.length)
+
+    call.info("gloss complete", {
+      totalMs,
+      geminiMs: result.geminiMs,
+      candidateCount: candidates.length,
+      proposedCount: proposed.length,
+      acceptedCount: words.length,
+      rejectedCount: rejected.length,
+      rejected: rejected.length > 0 ? rejected.map((r) => `${r.word}:${r.reason}`).join(",") : undefined,
+      accepted: words.length > 0 ? words.map((w) => w.word).join(",") : undefined,
+      totalTokens: result.usage.totalTokens,
+    })
+
     return {
       words,
       profiling: {
-        totalMs: Date.now() - started,
+        totalMs,
         geminiMs: result.geminiMs,
         parseMs: result.parseMs,
         model: result.model,

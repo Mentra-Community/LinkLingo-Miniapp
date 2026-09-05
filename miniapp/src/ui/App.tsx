@@ -2,7 +2,12 @@ import {useEffect, useState} from "react"
 import {useColorScheme, useSafeArea} from "@mentra/miniapp/ui"
 
 import type {Channels} from "../shared/channels"
-import type {LinkLingoMode, LinkLingoSettings, LinkLingoSnapshot} from "../shared/types"
+import type {
+  LinkLingoDiagnostics,
+  LinkLingoMode,
+  LinkLingoSettings,
+  LinkLingoSnapshot,
+} from "../shared/types"
 import {DEFAULT_SETTINGS, inputLanguage, outputLanguage} from "../shared/types"
 import {LANGUAGES, languageName, languageOptionLabel} from "./lib/languages"
 
@@ -16,6 +21,8 @@ export function App() {
   const isDark = useColorScheme() !== "light"
   const {insets} = useSafeArea()
   const [displayOpen, setDisplayOpen] = useState(false)
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+  const [diagnostics, setDiagnostics] = useState<LinkLingoDiagnostics | null>(null)
   const [snap, setSnap] = useState<LinkLingoSnapshot>({
     settings: DEFAULT_SETTINGS,
     words: [],
@@ -39,6 +46,7 @@ export function App() {
       mentra.on("link:processing", ({processing}) => setSnap((s) => ({...s, processing}))),
       mentra.on("link:backend-status", (backend) => setSnap((s) => ({...s, backend}))),
       mentra.on("link:profiling", (profiling) => setSnap((s) => ({...s, profiling}))),
+      mentra.on("link:diagnostics", setDiagnostics),
     ]
     mentra.send("link:request-snapshot", {})
     return () => unsubs.forEach((u) => u())
@@ -295,6 +303,18 @@ export function App() {
             ) : null}
           </section>
 
+          <section className="card">
+            <button
+              type="button"
+              className="disclosure"
+              aria-expanded={diagnosticsOpen}
+              onClick={() => setDiagnosticsOpen((open) => !open)}>
+              <h2 className="card-title">Diagnostics</h2>
+              <span className={`chevron${diagnosticsOpen ? " open" : ""}`}>›</span>
+            </button>
+            {diagnosticsOpen ? <DiagnosticsBody diagnostics={diagnostics} /> : null}
+          </section>
+
           <div className="actions">
             <button type="button" className="danger" onClick={() => mentra.send("link:clear", {})}>
               Clear HUD
@@ -336,6 +356,80 @@ function ToggleRow({
       />
     </div>
   )
+}
+
+/**
+ * Mirrors the background counters. A phone has no log tail, so this is the only
+ * way to see engine throughput without plugging in a USB cable.
+ */
+function DiagnosticsBody({diagnostics}: {diagnostics: LinkLingoDiagnostics | null}) {
+  if (!diagnostics) {
+    return <p className="hint">Waiting for the background service to report…</p>
+  }
+
+  const counters = Object.entries(diagnostics.counters).sort(([a], [b]) => a.localeCompare(b))
+  const timings = Object.entries(diagnostics.timings).sort(([a], [b]) => a.localeCompare(b))
+
+  return (
+    <div className="display-body diag">
+      <div className="diag-row">
+        <span>Uptime</span>
+        <b>{formatDuration(diagnostics.uptimeSeconds)}</b>
+      </div>
+      {diagnostics.lastError ? (
+        <div className="diag-error">
+          <strong>Last error</strong>
+          <span>{diagnostics.lastError}</span>
+          {diagnostics.lastErrorAt ? <em>{timeAgo(diagnostics.lastErrorAt)}</em> : null}
+        </div>
+      ) : (
+        <div className="diag-row">
+          <span>Errors</span>
+          <b>None</b>
+        </div>
+      )}
+
+      {timings.length > 0 ? (
+        <>
+          <p className="diag-head">Latency</p>
+          {timings.map(([name, timing]) => (
+            <div key={name} className="diag-row">
+              <span>{name}</span>
+              <b>
+                {timing.lastMs}ms · avg {timing.avgMs} · max {timing.maxMs}
+              </b>
+            </div>
+          ))}
+        </>
+      ) : null}
+
+      {counters.length > 0 ? (
+        <>
+          <p className="diag-head">Counters</p>
+          {counters.map(([name, value]) => (
+            <div key={name} className="diag-row">
+              <span>{name}</span>
+              <b>{value}</b>
+            </div>
+          ))}
+        </>
+      ) : (
+        <p className="hint">No activity recorded yet.</p>
+      )}
+    </div>
+  )
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+}
+
+function timeAgo(at: number): string {
+  const seconds = Math.max(0, Math.round((Date.now() - at) / 1000))
+  return seconds < 60 ? `${seconds}s ago` : `${Math.round(seconds / 60)}m ago`
 }
 
 function proficiencyLabel(value: number): string {

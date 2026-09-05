@@ -503,6 +503,74 @@ input {
   margin-top: 12px;
 }
 
+.diag {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.diag-head {
+  margin: 12px 0 2px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 700;
+}
+
+.diag-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.diag-row:first-child {
+  border-top: 0;
+}
+
+.diag-row span {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+
+.diag-row b {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+.diag-error {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--bad-soft);
+}
+
+.diag-error strong {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bad);
+}
+
+.diag-error span {
+  font-size: 13px;
+}
+
+.diag-error em {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: normal;
+}
+
 .actions {
   display: flex;
   flex-direction: column;
