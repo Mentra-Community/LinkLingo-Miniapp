@@ -62,7 +62,6 @@ export async function generateJson(opts: GeminiCallOptions): Promise<GeminiCallR
           temperature: 0.3,
           responseMimeType: "application/json",
           responseSchema: opts.responseSchema,
-          thinkingConfig: {thinkingBudget: 0},
         },
       }),
     },
