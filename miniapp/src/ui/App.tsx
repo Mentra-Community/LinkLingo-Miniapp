@@ -119,8 +119,14 @@ export function App() {
               </div>
             ) : (
               <div className="empty-live">
-                <strong>Listening for {heard}</strong>
-                <span>Rare words and upgrades will stack here as people talk around you.</span>
+                <strong>{snap.caption ? `Heard ${heard}` : `Listening for ${heard}`}</strong>
+                <span>
+                  {snap.backend.lastError
+                    ? snap.backend.lastError
+                    : snap.caption
+                      ? "Nothing uncommon enough to gloss in that stretch yet."
+                      : "Rare words and upgrades will stack here as people talk around you."}
+                </span>
               </div>
             )}
             {settings.mode !== "translation" && snap.caption ? <p className="caption">{snap.caption}</p> : null}

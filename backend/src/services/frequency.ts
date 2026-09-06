@@ -45,6 +45,91 @@ const LANG_ALIASES: Record<string, string> = {
 const COMMON_PERCENTILE = 4
 const UNKNOWN_PERCENTILE = 98.2
 const MIN_LATIN_LEN = 4
+const FALLBACK_CANDIDATE_LIMIT = 8
+
+/**
+ * Function words that should never be sent to the model, even when we relax
+ * the rarity floor so everyday speech still produces *some* candidates.
+ */
+const STOP_WORDS = new Set([
+  "the",
+  "a",
+  "an",
+  "it",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "to",
+  "of",
+  "and",
+  "or",
+  "in",
+  "on",
+  "at",
+  "for",
+  "with",
+  "this",
+  "that",
+  "i",
+  "you",
+  "he",
+  "she",
+  "we",
+  "they",
+  "的",
+  "了",
+  "是",
+  "在",
+  "我",
+  "你",
+  "他",
+  "她",
+  "它",
+  "这",
+  "那",
+  "有",
+  "和",
+  "就",
+  "都",
+  "也",
+  "很",
+  "到",
+  "说",
+  "要",
+  "会",
+  "能",
+  "把",
+  "被",
+  "从",
+  "对",
+  "与",
+  "或",
+  "但",
+  "及",
+  "啊",
+  "吗",
+  "呢",
+  "吧",
+  "哇",
+  "我们",
+  "他们",
+  "她们",
+  "什么",
+  "怎么",
+  "一个",
+  "这个",
+  "那个",
+  "因为",
+  "所以",
+  "但是",
+  "如果",
+  "可以",
+  "没有",
+  "不是",
+  "就是",
+])
 
 export interface WordCandidate {
   word: string
@@ -134,20 +219,35 @@ function lookupPercentile(token: string, lang: string): number {
   return Math.round((rank / dict.total) * 1000) / 10
 }
 
+function isStopWord(word: string): boolean {
+  return STOP_WORDS.has(word) || STOP_WORDS.has(word.toLowerCase())
+}
+
 export function rankWords(transcript: string, language: string): Record<string, number> {
-  const lang = normalizeLang(language)
   const ranks: Record<string, number> = {}
+  for (const token of scoreTokens(transcript, language)) {
+    if (token.percentile <= COMMON_PERCENTILE) continue
+    ranks[token.word] = token.percentile
+  }
+  return ranks
+}
+
+function scoreTokens(transcript: string, language: string): WordCandidate[] {
+  const lang = normalizeLang(language)
+  const seen = new Map<string, number>()
   for (const raw of tokenize(transcript, lang)) {
     const isChinese = /[\u4e00-\u9fff]/.test(raw)
     const cleaned = raw.replace(/[?。!.,;？"]/g, "").trim()
     if (!cleaned) continue
     if (/^[^\w\u4e00-\u9fff]+$/.test(cleaned)) continue
-    const percentile = lookupPercentile(cleaned, lang)
-    if (percentile <= COMMON_PERCENTILE) continue
     if (!isChinese && cleaned.length < MIN_LATIN_LEN) continue
-    ranks[cleaned.toLowerCase()] = percentile
+    if (isStopWord(cleaned)) continue
+    const percentile = lookupPercentile(cleaned, lang)
+    const key = isChinese ? cleaned : cleaned.toLowerCase()
+    const prior = seen.get(key)
+    if (prior == null || percentile > prior) seen.set(key, percentile)
   }
-  return ranks
+  return [...seen.entries()].map(([word, percentile]) => ({word, percentile}))
 }
 
 export function candidateWords(
@@ -157,11 +257,19 @@ export function candidateWords(
   minPercentile = 0.5,
 ): WordCandidate[] {
   const recentSet = new Set(recent.map((w) => w.toLowerCase().replace(/\s*\([^)]*\)/g, "").trim()))
-  const ranks = rankWords(transcript, language)
-  return Object.entries(ranks)
-    .filter(([word, percentile]) => percentile >= minPercentile && !recentSet.has(word))
-    .map(([word, percentile]) => ({word, percentile}))
+  const scored = scoreTokens(transcript, language).filter((token) => !recentSet.has(token.word.toLowerCase()))
+  const rare = scored
+    .filter((token) => token.percentile >= minPercentile && token.percentile > COMMON_PERCENTILE)
     .sort((a, b) => b.percentile - a.percentile)
+
+  if (rare.length > 0) return rare
+
+  // Everyday Chinese is almost entirely below the rarity floor. Returning
+  // nothing here used to skip Gemini entirely, which looked like a backend
+  // failure: speech comes in, HUD stays blank. Fall back to the least-common
+  // content tokens so the model still has something to pick from.
+  if (scored.length > 0) metrics.increment("gloss_fallback_candidates_total")
+  return scored.sort((a, b) => b.percentile - a.percentile).slice(0, FALLBACK_CANDIDATE_LIMIT)
 }
 
 export function fluencyThreshold(fluency: number): number {

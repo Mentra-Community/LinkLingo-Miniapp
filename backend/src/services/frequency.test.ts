@@ -22,4 +22,10 @@ describe("rankWords", () => {
     const candidates = candidateWords("photosynthesis chlorophyll", "en", ["photosynthesis"], 0)
     expect(candidates.some((c) => c.word === "photosynthesis")).toBe(false)
   })
+
+  test("everyday Chinese still yields fallback content words", () => {
+    const candidates = candidateWords("我们今天回家吃饭", "zh", [], 2)
+    expect(candidates.length).toBeGreaterThan(0)
+    expect(candidates.some((c) => c.word === "我们")).toBe(false)
+  })
 })

@@ -24,9 +24,11 @@ export interface GlossEngineCallbacks {
 export class GlossEngine {
   private lastGlossAt = 0
   private lastUpgradeAt = 0
+  private lastGlossContext = ""
   private glossInFlight = false
   private upgradeInFlight = false
   private pendingContext: string | null = null
+  private pendingTimer: ReturnType<typeof setTimeout> | null = null
   private recent = new Map<string, number>()
   private recentUpgrades: string[] = []
   private upgradeQueue: GlossedWord[] = []
@@ -66,6 +68,11 @@ export class GlossEngine {
     })
     diagnostics.increment("engine.resets")
     this.pendingContext = null
+    this.lastGlossContext = ""
+    if (this.pendingTimer) {
+      clearTimeout(this.pendingTimer)
+      this.pendingTimer = null
+    }
     this.recent.clear()
     this.recentUpgrades = []
     this.upgradeQueue = []
@@ -80,6 +87,10 @@ export class GlossEngine {
     const context = this.contextForCall(false)
     if (!context) {
       diagnostics.increment("engine.gloss_skipped.no_context")
+      return
+    }
+    if (context === this.lastGlossContext) {
+      diagnostics.increment("engine.gloss_skipped.duplicate")
       return
     }
     if (this.glossInFlight) {
@@ -112,8 +123,10 @@ export class GlossEngine {
     })
     this.glossInFlight = false
     this.callbacks.onProcessing(false)
+    this.lastGlossContext = context
     if (!result.ok) {
       this.callbacks.onBackendError(result.message)
+      this.schedulePending(settings, context)
       return
     }
     this.callbacks.onProfiling(result.data.profiling)
@@ -142,12 +155,28 @@ export class GlossEngine {
     })
 
     if (accepted.length > 0) this.callbacks.onWords(accepted)
-    if (this.pendingContext) {
-      const next = this.pendingContext
-      this.pendingContext = null
-      log.debug("running coalesced gloss")
-      void this.runGloss(settings, next)
+    this.schedulePending(settings, context)
+  }
+
+  /**
+   * Empty glosses return in a couple of milliseconds. Draining the coalesced
+   * context immediately turned one utterance into a 20-request storm. Wait out
+   * the cooldown, and never re-send the same window.
+   */
+  private schedulePending(settings: LinkLingoSettings, justFinished: string): void {
+    const next = this.pendingContext
+    if (!next) return
+    this.pendingContext = null
+    if (next === justFinished || next === this.lastGlossContext) {
+      diagnostics.increment("engine.gloss_skipped.duplicate")
+      return
     }
+    const wait = Math.max(0, GLOSS_COOLDOWN_MS - (Date.now() - this.lastGlossAt))
+    if (this.pendingTimer) clearTimeout(this.pendingTimer)
+    this.pendingTimer = setTimeout(() => {
+      this.pendingTimer = null
+      void this.runGloss(settings, next)
+    }, wait)
   }
 
   private async runUpgrade(settings: LinkLingoSettings): Promise<void> {
