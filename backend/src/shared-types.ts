@@ -17,6 +17,8 @@ export interface GlossProfiling {
   parseMs?: number
   model: string
   candidateCount: number
+  /** Vocabulary size assumed for this learner; the rank cut-off for candidates. */
+  knownRank?: number
 }
 
 export interface GlossResponse {

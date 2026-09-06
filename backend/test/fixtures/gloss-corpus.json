@@ -1,0 +1,106 @@
+{
+  "comment": "Labelled gloss corpus. `expect` lists the words a learner at that tier should be offered, and every entry is reachable: it is a token the pipeline emits and it ranks rarer than that tier's vocabulary. `neverGloss` lists tokens that are wrong at any proficiency (numbers, fillers) regardless of how rare the frequency list makes them look. Words the learner already knows are not listed here at all: that is enforced against knownRankFor, not by hand.",
+  "anchors": {"beginner": 10, "intermediate": 50, "advanced": 90},
+  "neverGloss": [
+    "百分之二十", "三个", "一个", "这个", "这家", "然后", "非常", "正在", "如何", "少", "把",
+    "the", "this", "both", "after", "because", "more", "her", "take", "work"
+  ],
+  "samples": [
+    {
+      "text": "你好，请问洗手间在哪里？",
+      "inputLanguage": "Chinese",
+      "outputLanguage": "English",
+      "expect": {"beginner": ["洗手间"], "intermediate": ["洗手间"], "advanced": []}
+    },
+    {
+      "text": "我们今天下午要去参观博物馆，然后在附近的餐厅吃晚饭。",
+      "inputLanguage": "Chinese",
+      "outputLanguage": "English",
+      "expect": {"beginner": ["博物馆", "参观", "餐厅"], "intermediate": ["博物馆", "参观"], "advanced": []}
+    },
+    {
+      "text": "这个政策的实施对经济发展产生了深远的影响。",
+      "inputLanguage": "Chinese",
+      "outputLanguage": "English",
+      "expect": {"beginner": ["深远", "实施", "政策"], "intermediate": ["深远", "实施"], "advanced": ["深远"]}
+    },
+    {
+      "text": "医生建议他每天锻炼身体，少吃油腻的食物。",
+      "inputLanguage": "Chinese",
+      "outputLanguage": "English",
+      "expect": {"beginner": ["油腻", "锻炼身体", "建议"], "intermediate": ["油腻", "锻炼身体"], "advanced": ["油腻"]}
+    },
+    {
+      "text": "由于天气恶劣，航班被迫延误了三个小时。",
+      "inputLanguage": "Chinese",
+      "outputLanguage": "English",
+      "expect": {"beginner": ["恶劣", "延误", "航班"], "intermediate": ["恶劣", "延误", "被迫"], "advanced": ["延误"]}
+    },
+    {
+      "text": "他在会议上提出了一个非常有创意的方案。",
+      "inputLanguage": "Chinese",
+      "outputLanguage": "English",
+      "expect": {"beginner": ["创意", "方案"], "intermediate": ["创意", "方案"], "advanced": []}
+    },
+    {
+      "text": "我妈妈做的饺子特别好吃。",
+      "inputLanguage": "Chinese",
+      "outputLanguage": "English",
+      "expect": {"beginner": ["饺子"], "intermediate": ["饺子"], "advanced": ["饺子"]}
+    },
+    {
+      "text": "科学家们正在研究如何减少温室气体的排放。",
+      "inputLanguage": "Chinese",
+      "outputLanguage": "English",
+      "expect": {"beginner": ["排放", "温室", "气体"], "intermediate": ["排放", "温室"], "advanced": ["排放", "温室"]}
+    },
+    {
+      "text": "这家公司的股票昨天暴跌了百分之二十。",
+      "inputLanguage": "Chinese",
+      "outputLanguage": "English",
+      "expect": {"beginner": ["暴跌", "股票"], "intermediate": ["暴跌", "股票"], "advanced": ["暴跌"]}
+    },
+    {
+      "text": "请把窗户关上，外面太冷了。",
+      "inputLanguage": "Chinese",
+      "outputLanguage": "English",
+      "expect": {"beginner": ["窗户", "关上"], "intermediate": [], "advanced": []}
+    },
+    {
+      "text": "Can you pass me the salt? This soup needs more flavor.",
+      "inputLanguage": "English",
+      "outputLanguage": "Chinese",
+      "expect": {"beginner": ["salt", "soup", "flavor"], "intermediate": ["flavor", "salt"], "advanced": []}
+    },
+    {
+      "text": "The committee postponed the vote because the amendment was ambiguous.",
+      "inputLanguage": "English",
+      "outputLanguage": "Chinese",
+      "expect": {"beginner": ["ambiguous", "amendment", "postponed"], "intermediate": ["ambiguous", "amendment"], "advanced": ["ambiguous"]}
+    },
+    {
+      "text": "My neighbor adopted a puppy from the shelter last weekend.",
+      "inputLanguage": "English",
+      "outputLanguage": "Chinese",
+      "expect": {"beginner": ["puppy", "shelter", "adopted"], "intermediate": ["shelter", "puppy"], "advanced": []}
+    },
+    {
+      "text": "The negotiations collapsed after both sides refused to compromise.",
+      "inputLanguage": "English",
+      "outputLanguage": "Chinese",
+      "expect": {"beginner": ["negotiations", "compromise"], "intermediate": ["negotiations", "compromise"], "advanced": []}
+    },
+    {
+      "text": "I usually take the subway to work, but today I walked.",
+      "inputLanguage": "English",
+      "outputLanguage": "Chinese",
+      "expect": {"beginner": ["subway"], "intermediate": ["subway"], "advanced": []}
+    },
+    {
+      "text": "Her thesis examines the socioeconomic ramifications of urbanization.",
+      "inputLanguage": "English",
+      "outputLanguage": "Chinese",
+      "expect": {"beginner": ["ramifications", "socioeconomic", "urbanization"], "intermediate": ["ramifications", "socioeconomic"], "advanced": ["ramifications", "socioeconomic", "urbanization"]}
+    }
+  ]
+}

@@ -133,9 +133,11 @@ export async function generateJson(opts: GeminiCallOptions): Promise<GeminiCallR
           contents: [{role: "user", parts: [{text: opts.user}]}],
           generationConfig: {
             maxOutputTokens: opts.maxOutputTokens,
-            temperature: 0.3,
             responseMimeType: "application/json",
             responseSchema: opts.responseSchema,
+            // Closest to thinking-off. 3.8 Flash rejects this and floors at
+            // "low"; Flash-Lite accepts "minimal" and is the latency chip.
+            thinkingConfig: {thinkingLevel: "minimal"},
           },
         }),
       },

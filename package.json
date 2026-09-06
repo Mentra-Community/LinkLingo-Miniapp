@@ -24,6 +24,8 @@
     "typecheck:miniapp": "cd miniapp && tsc -p tsconfig.json --noEmit",
     "test": "LOG_LEVEL=silent bun test backend/src/observability backend/src/services miniapp/src/background",
     "freq:build": "bun backend/scripts/build-frequency-data.ts",
+    "eval:gloss": "LOG_LEVEL=silent bun backend/scripts/eval-gloss.ts",
+    "eval:gloss:doppler": "doppler run --project linklingo --config dev --preserve-env -- bun run eval:gloss",
     "sync-vendor": "bash scripts/sync-vendor.sh"
   },
   "dependencies": {

@@ -49,6 +49,19 @@ export interface LinkLingoProfiling {
   geminiMs?: number
   model?: string
   clientRoundTripMs?: number
+  /** Vocabulary size the backend assumed for the current proficiency setting. */
+  knownRank?: number
+}
+
+/**
+ * Estimated size of the learner's active vocabulary. Mirrors `knownRankFor` in
+ * the backend so the slider can label itself with the same number the gloss
+ * pipeline actually filters on.
+ */
+export function knownRankFor(proficiency: number): number {
+  const raw = Number.isFinite(proficiency) ? proficiency : 50
+  const p = Math.min(100, Math.max(0, raw)) / 100
+  return Math.round(300 * Math.pow(50, p))
 }
 
 export interface BackendStatus {

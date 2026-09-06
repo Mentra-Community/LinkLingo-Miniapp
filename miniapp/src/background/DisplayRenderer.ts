@@ -8,7 +8,14 @@ import {createLogger, diagnostics} from "./observability"
 const log = createLogger("display")
 
 const INACTIVITY_MS = 40_000
-const DISPLAY_MS = 20_000
+const IDLE_LINE = "LinkLingo · listening"
+/**
+ * Every send is a full EvenHub page rebuild over BLE on G2. Interim
+ * transcription and translation events arrive ~10x/second, which saturates the
+ * BLE queue ("writeCharacteristic ok=3 fail=2 in 3505ms"), makes the glasses
+ * shut the page down, and leaves the HUD permanently blank. Coalesce instead.
+ */
+const MIN_SEND_INTERVAL_MS = 900
 
 export class DisplayRenderer {
   private formatter: CaptionsFormatter
@@ -17,6 +24,10 @@ export class DisplayRenderer {
   private lastTranslation = ""
   private lastOriginal = ""
   private lastWords: GlossedWord[] = []
+  private lastSentText = ""
+  private lastSentAt = 0
+  private pendingTimer: ReturnType<typeof setTimeout> | null = null
+  private pendingSettings: LinkLingoSettings | null = null
 
   constructor(private readonly session: MiniappSession) {
     this.formatter = this.makeFormatter({
@@ -28,6 +39,11 @@ export class DisplayRenderer {
 
   applySettings(settings: LinkLingoSettings): void {
     this.formatter = this.makeFormatter(settings)
+  }
+
+  /** First frame so G2 brings the EvenHub page up before any speech arrives. */
+  showIdle(settings: LinkLingoSettings): void {
+    this.paint(settings)
   }
 
   showCaption(text: string, isFinal: boolean, settings: LinkLingoSettings, words: GlossedWord[]): void {
@@ -49,40 +65,82 @@ export class DisplayRenderer {
     this.paint(settings)
   }
 
-  clear(): void {
+  clear(settings: LinkLingoSettings): void {
     this.lastCaption = ""
     this.lastTranslation = ""
     this.lastOriginal = ""
     this.lastWords = []
     this.formatter.clear()
-    try {
-      this.session.display.clear()
-    } catch (err) {
-      diagnostics.increment("display.clear_failures")
-      log.error("display clear failed", {error: err as Error})
+    if (this.pendingTimer) {
+      clearTimeout(this.pendingTimer)
+      this.pendingTimer = null
     }
-    if (this.inactivityTimer) {
-      clearTimeout(this.inactivityTimer)
-      this.inactivityTimer = null
-    }
+    // Deliberately not session.display.clear(): a clear_view shuts the G2
+    // EvenHub page down, and every later frame is then dropped. Repaint idle.
+    this.paint(settings)
   }
 
+  /**
+   * Composes the frame, then hands it to the coalescing sender. Callers fire
+   * this on every stream event, so it must stay cheap and must not touch BLE.
+   */
   private paint(settings: LinkLingoSettings): void {
+    this.pendingSettings = settings
+    const text = this.compose(settings)
+
+    if (text === this.lastSentText) {
+      diagnostics.increment("display.deduped")
+      return
+    }
+
+    const wait = MIN_SEND_INTERVAL_MS - (Date.now() - this.lastSentAt)
+    if (wait <= 0) {
+      this.send(text, settings)
+      return
+    }
+    // A trailing timer already scheduled will pick up the newest state, so a
+    // burst of interims collapses into one page rebuild.
+    if (this.pendingTimer) return
+    this.pendingTimer = setTimeout(() => {
+      this.pendingTimer = null
+      const latest = this.pendingSettings ?? settings
+      const frame = this.compose(latest)
+      if (frame !== this.lastSentText) this.send(frame, latest)
+    }, wait)
+  }
+
+  /**
+   * Always a single text_wall. Switching layoutType between text_wall and
+   * double_text_wall is a structural change that forces G2 to tear the page
+   * down and rebuild, which is why mode switches used to blank the glasses.
+   */
+  private compose(settings: LinkLingoSettings): string {
     const wordText = formatWords(this.lastWords)
+    const caption = this.lastCaption.trim()
+    const translation = this.lastTranslation.trim()
+    const original = this.lastOriginal.trim()
+
+    if (settings.mode === "translation") {
+      return joinRows([translation, original]) || IDLE_LINE
+    }
+    if (settings.mode === "gloss") {
+      // Words-only used to send an empty wall whenever Gemini returned
+      // nothing, which is what the user saw: captions on the phone, black
+      // glasses. Fall back to the live caption so the HUD always has ink.
+      return wordText || caption || IDLE_LINE
+    }
+    return joinRows([wordText, caption]) || IDLE_LINE
+  }
+
+  private send(text: string, settings: LinkLingoSettings): void {
     const breakMode = settings.wordBreaking ? "character" : "word"
-    const options = {durationMs: DISPLAY_MS, breakMode: breakMode as "character" | "word"}
+    // Do not pass durationMs. Mentra auto-clears that window, and on G2 a
+    // clear_view shuts the EvenHub page down so the next frames never appear.
+    const options = {breakMode: breakMode as "character" | "word"}
     const started = Date.now()
 
-    // A throw here means nothing reaches the glasses while the phone UI still
-    // looks healthy, which is the hardest LinkLingo failure to diagnose.
     try {
-      if (settings.mode === "translation") {
-        this.session.display.showDoubleTextWall(this.lastTranslation, this.lastOriginal, options)
-      } else if (settings.mode === "gloss") {
-        this.session.display.showTextWall(wordText, options)
-      } else {
-        this.session.display.showDoubleTextWall(wordText, this.lastCaption, options)
-      }
+      this.session.display.showTextWall(text, options)
       diagnostics.increment("display.paints")
       diagnostics.observe("display.paintMs", Date.now() - started)
     } catch (err) {
@@ -95,21 +153,31 @@ export class DisplayRenderer {
       return
     }
 
+    this.lastSentText = text
+    this.lastSentAt = Date.now()
     log.debug("painted hud", {
       mode: settings.mode,
       wordRows: this.lastWords.length,
-      captionChars: this.lastCaption.length,
+      captionChars: this.lastCaption.trim().length,
+      translationChars: this.lastTranslation.trim().length,
+      sentChars: text.length,
       paintMs: Date.now() - started,
     })
-    this.bumpInactivity()
+    this.bumpInactivity(settings)
   }
 
-  private bumpInactivity(): void {
+  private bumpInactivity(settings: LinkLingoSettings): void {
     if (this.inactivityTimer) clearTimeout(this.inactivityTimer)
     this.inactivityTimer = setTimeout(() => {
       diagnostics.increment("display.inactivity_clears")
-      log.info("clearing hud after inactivity", {afterMs: INACTIVITY_MS})
-      this.session.display.clear()
+      log.info("idling hud after silence", {afterMs: INACTIVITY_MS})
+      this.lastCaption = ""
+      this.lastTranslation = ""
+      this.lastOriginal = ""
+      this.lastWords = []
+      this.formatter.clear()
+      // Keep the G2 page alive with a listening line instead of clear_view.
+      this.paint(settings)
     }, INACTIVITY_MS)
   }
 
@@ -123,6 +191,10 @@ export class DisplayRenderer {
       breakMode: settings.wordBreaking ? "character" : "word",
     })
   }
+}
+
+function joinRows(rows: string[]): string {
+  return rows.filter((row) => row.length > 0).join("\n")
 }
 
 function formatWords(words: GlossedWord[]): string {

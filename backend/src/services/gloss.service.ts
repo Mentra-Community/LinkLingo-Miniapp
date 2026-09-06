@@ -1,35 +1,37 @@
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
 import type {GlossRequest, GlossResponse, GlossedWord} from "../shared-types"
-import {candidateWords, fluencyThreshold} from "./frequency"
+import {candidateWords, knownRankFor, lookupRank, type WordCandidate} from "./frequency"
 import {allowMockLlm, generateJson, LlmServiceError, resolveApiKey, resolveModel} from "./gemini"
 import {annotateChinese, isChinese, languageIsChinese, languageWantsPinyin} from "./pinyin"
 
 const log = createLogger("gloss")
 
 /** Why a model-proposed word did not make it to the glasses. */
-type RejectReason = "empty" | "echo" | "recent" | "not_candidate"
+type RejectReason = "empty" | "echo" | "recent" | "not_candidate" | "known"
 
-const GLOSS_SYSTEM = `You help a language learner by glossing unfamiliar words from live speech.
+const GLOSS_SYSTEM = `You gloss unfamiliar words for a language learner listening to live speech through smart glasses.
+
+The learner already knows roughly the KNOWN most common words of the input language. Each candidate is written as word:rank, where rank is its frequency rank in that language (1 = most common). Every candidate is already rarer than the learner's vocabulary, so the higher the rank, the less likely they know it.
 
 Rules:
-- Pick 0 to 2 words from the CANDIDATE list only. Never invent words that are not candidates.
-- Translate each picked word into the output language. Keep translations short (1-4 words) and accurate.
-- Scale density with fluency: 0-50 pick ~1 word per short utterance; 50-75 pick only if a candidate is clearly hard; >75 pick only very rare words.
-- Never gloss function words, greetings, or mistranscriptions (3-letter Latin fragments, nonsense).
-- Never re-gloss a word in RECENT.
+- Pick at most MAX candidates, choosing the ones with the highest learning value: content words (nouns, verbs, adjectives, set phrases) the learner most plausibly cannot follow.
+- Prefer higher-rank candidates, but skip proper names, numbers, mistranscriptions and fragments however rare they look.
+- Pick ONLY from CANDIDATES. Never invent, split or reshape a word.
+- Translate each pick into the output language in 1-4 words, accurate for this context.
 - Bidirectional: if a candidate is already in the output language, translate it into the input language.
+- Never re-gloss a word in RECENT.
+- Returning {"words":[]} is a good answer when nothing is worth glossing, which is common for fluent learners.
 - Return JSON only: {"words":[{"word":"...","translation":"..."}]}
-- If nothing is worth glossing, return {"words":[]}.
 
 Examples:
-Candidates: train:12.4, fruit stand:18.1  Input=English Output=Chinese Fluency=33
-→ {"words":[{"word":"train","translation":"火车"},{"word":"fruit stand","translation":"水果摊"}]}
+KNOWN=444 MAX=3  Candidates: 博物馆:4156, 参观:3649, 餐厅:1700  Input=Chinese Output=English
+→ {"words":[{"word":"博物馆","translation":"museum"},{"word":"参观","translation":"to visit"},{"word":"餐厅","translation":"restaurant"}]}
 
-Candidates: студент:9.2, биология:14.0  Input=Russian Output=English Fluency=40
-→ {"words":[{"word":"студент","translation":"student"}]}
+KNOWN=5641 MAX=2  Candidates: ramifications:21455, socioeconomic:38210, thesis:5980  Input=English Output=Chinese
+→ {"words":[{"word":"socioeconomic","translation":"社会经济的"},{"word":"ramifications","translation":"影响"}]}
 
-Candidates: hello:0.4  Input=English Output=Spanish Fluency=20
+KNOWN=10144 MAX=2  Candidates: Tuesday:11450, subway:9800  Input=English Output=Chinese
 → {"words":[]}`
 
 const GLOSS_SCHEMA = {
@@ -50,9 +52,19 @@ const GLOSS_SCHEMA = {
   required: ["words"],
 }
 
-function formatCandidates(candidates: {word: string; percentile: number}[]): string {
+function formatCandidates(candidates: WordCandidate[]): string {
   if (candidates.length === 0) return "(none)"
-  return candidates.slice(0, 12).map((c) => `${c.word}:${c.percentile}`).join(", ")
+  return candidates.map((c) => `${c.word}:${c.rank}`).join(", ")
+}
+
+/**
+ * How many words the HUD may show at once. Beginners need most of an utterance
+ * decoded; advanced learners need the one word they missed. A budget of 1 at the
+ * top end measured worse than 2 (38% vs 50% recall on the eval corpus) because
+ * the model spent its single pick on the rarest word rather than the useful one.
+ */
+function pickBudget(proficiency: number): number {
+  return proficiency < 34 ? 3 : 2
 }
 
 function annotatePair(word: string, translation: string, inputLang: string, outputLang: string): GlossedWord {
@@ -74,14 +86,17 @@ export class GlossService {
     const started = Date.now()
     const context = (body.conversationContext ?? "").trim()
     const recent = body.recentWords ?? []
-    const threshold = fluencyThreshold(body.fluencyLevel ?? 50)
+    const proficiency = body.fluencyLevel ?? 50
+    const knownRank = knownRankFor(proficiency)
+    const maxWords = pickBudget(proficiency)
     const call = log.child({
       in: body.inputLanguage,
       out: body.outputLanguage,
-      fluency: body.fluencyLevel,
+      fluency: proficiency,
+      knownRank,
     })
     const selectStarted = Date.now()
-    const candidates = context ? candidateWords(context, body.inputLanguage, recent, threshold) : []
+    const candidates = context ? candidateWords(context, body.inputLanguage, recent, knownRank) : []
     const selectMs = Date.now() - selectStarted
 
     metrics.increment("gloss_requests_total", {
@@ -92,10 +107,9 @@ export class GlossService {
     call.debug("candidates selected", {
       contextChars: context.length,
       recentCount: recent.length,
-      threshold,
       candidateCount: candidates.length,
       selectMs,
-      topCandidates: candidates.slice(0, 5).map((c) => `${c.word}:${c.percentile}`).join(","),
+      topCandidates: candidates.slice(0, 5).map((c) => `${c.word}:${c.rank}`).join(","),
     })
 
     if (!context || candidates.length === 0) {
@@ -103,11 +117,15 @@ export class GlossService {
       call.info("gloss skipped", {
         reason: context ? "no_candidates" : "empty_context",
         contextChars: context.length,
-        threshold,
       })
       return {
         words: [],
-        profiling: {totalMs: Date.now() - started, model: this.model, candidateCount: candidates.length},
+        profiling: {
+          totalMs: Date.now() - started,
+          model: this.model,
+          candidateCount: candidates.length,
+          knownRank,
+        },
       }
     }
 
@@ -121,6 +139,7 @@ export class GlossService {
           totalMs: Date.now() - started,
           model: "mock",
           candidateCount: candidates.length,
+          knownRank,
         },
       }
     }
@@ -128,7 +147,7 @@ export class GlossService {
     const user = [
       `Input language: ${body.inputLanguage}`,
       `Output language: ${body.outputLanguage}`,
-      `Fluency: ${body.fluencyLevel}`,
+      `KNOWN=${knownRank} MAX=${maxWords}`,
       `Context: ${context.slice(-400)}`,
       `Candidates: ${formatCandidates(candidates)}`,
       `Recent: ${recent.join(", ") || "(none)"}`,
@@ -137,7 +156,7 @@ export class GlossService {
     const result = await generateJson({
       system: GLOSS_SYSTEM,
       user,
-      maxOutputTokens: 128,
+      maxOutputTokens: 192,
       responseSchema: GLOSS_SCHEMA,
       operation: "gloss",
     })
@@ -190,8 +209,16 @@ export class GlossService {
         reject("not_candidate")
         continue
       }
+      // Candidate selection already applied the rank cut, so this only fires
+      // when the model reshapes a word into a more common form. Dropping it
+      // here is what keeps "hello" off an advanced learner's HUD.
+      const rank = lookupRank(bare, body.inputLanguage)
+      if (rank != null && rank <= knownRank) {
+        reject("known")
+        continue
+      }
       words.push(annotatePair(word, translation, body.inputLanguage, body.outputLanguage))
-      if (words.length >= 2) break
+      if (words.length >= maxWords) break
     }
 
     const totalMs = Date.now() - started
@@ -221,6 +248,7 @@ export class GlossService {
         parseMs: result.parseMs,
         model: result.model,
         candidateCount: candidates.length,
+        knownRank,
       },
     }
   }

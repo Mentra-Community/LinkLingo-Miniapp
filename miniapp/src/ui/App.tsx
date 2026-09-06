@@ -8,7 +8,7 @@ import type {
   LinkLingoSettings,
   LinkLingoSnapshot,
 } from "../shared/types"
-import {DEFAULT_SETTINGS, inputLanguage, outputLanguage} from "../shared/types"
+import {DEFAULT_SETTINGS, inputLanguage, knownRankFor, outputLanguage} from "../shared/types"
 import {LANGUAGES, languageName, languageOptionLabel} from "./lib/languages"
 
 const MODES: Array<{id: LinkLingoMode; label: string}> = [
@@ -222,7 +222,7 @@ export function App() {
             />
             <div className="level">
               <span>Beginner</span>
-              <b>{settings.proficiency}</b>
+              <b>{`≈${knownRankFor(settings.proficiency).toLocaleString()} words`}</b>
               <span>Advanced</span>
             </div>
             <div className="rows">

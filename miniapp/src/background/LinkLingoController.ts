@@ -92,6 +92,7 @@ export class LinkLingoController {
       loadMs: Date.now() - started,
     })
     this.display.applySettings(this.settings)
+    this.display.showIdle(this.settings)
     this.subscribeStreams()
     this.bindUi()
     this.session.ui.onOpen(() => {
@@ -153,7 +154,7 @@ export class LinkLingoController {
       this.original = ""
       this.buffer.clear()
       this.engine.reset()
-      this.display.clear()
+      this.display.clear(this.settings)
       this.ui.send("link:snapshot", this.snapshot())
     })
   }
@@ -194,7 +195,8 @@ export class LinkLingoController {
       this.original = ""
       this.buffer.clear()
       this.engine.reset()
-      this.display.clear()
+      this.display.applySettings(this.settings)
+      this.display.showIdle(this.settings)
       this.subscribeStreams()
     }
     this.ui.send("link:settings-update", this.settings)

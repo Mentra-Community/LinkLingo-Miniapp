@@ -36,3 +36,4 @@ services:
       PORT: "80"
       PACKAGE_NAME: com.mentra.link
       MENTRA_AUTH_JWKS_URL: https://core.mentraglass.com/.well-known/jwks.json
+      GEMINI_MODEL: gemini-3.5-flash-lite

@@ -21,21 +21,39 @@ const sourceRoot = process.argv[2]
   : defaultSource
 const outDir = join(import.meta.dir, "../data/freq")
 
+/**
+ * The OpenSubtitles-derived Chinese list carries thousands of Latin tokens
+ * (`the`, `pos`, `chffffff`) from untranslated subtitle furniture, 246 of them
+ * inside the top 2000. Every one of those shifts real Chinese words several
+ * hundred ranks rarer, which lands right in the beginner band, so they are
+ * dropped before ranks are frozen.
+ */
+function isContamination(lang: string, word: string): boolean {
+  if (lang !== "zh_cn") return false
+  return !/[\u4e00-\u9fff]/.test(word)
+}
+
 async function buildLang(lang: string): Promise<void> {
   const folder = lang
   const file = join(sourceRoot, folder, `${folder}_50k.txt`)
   const raw = await readFile(file, "utf8")
   const words: string[] = []
+  let dropped = 0
   for (const line of raw.split("\n")) {
     const word = line.trim().split(/\s+/)[0]
-    if (word) words.push(word)
+    if (!word) continue
+    if (isContamination(lang, word)) {
+      dropped++
+      continue
+    }
+    words.push(word)
   }
   if (words.length === 0) {
     throw new Error(`empty frequency list: ${file}`)
   }
   const dest = join(outDir, `${lang}.json`)
   await writeFile(dest, JSON.stringify(words))
-  console.log(`wrote ${dest} (${words.length} words)`)
+  console.log(`wrote ${dest} (${words.length} words${dropped ? `, dropped ${dropped}` : ""})`)
 }
 
 await mkdir(outDir, {recursive: true})
