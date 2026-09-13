@@ -6,7 +6,11 @@ node_modules
 .env.local
 .env.*.local
 
-miniapp
+# miniapp/ IS part of the build context: the image bakes the built bundle and
+# serves it at /miniapp. Only local build output is excluded so a stale laptop
+# build can never ship inside the image.
+miniapp/dist
+miniapp/build
 
 *.md
 .github

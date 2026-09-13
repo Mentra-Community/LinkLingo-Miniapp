@@ -13,6 +13,12 @@ build:
   context: .
   dockerfile: ./docker/Dockerfile
 
+# App-level env doubles as build args for the ARGs declared in the Dockerfile.
+# The miniapp bundle inlines this origin at build time, so it must name the
+# environment serving it. Verify with GET /healthz → miniapp.backendUrl.
+env:
+  MENTRA_PUBLIC_LINKLINGO_BACKEND_URL: https://linklingo-miniapp-dev.mentraglass.com
+
 services:
   - name: backend
     type: web

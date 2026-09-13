@@ -63,3 +63,30 @@ bun run freq:build -- /path/to/FrequencyWords   # regenerate data/freq
 ## Deploy
 
 Porter v2 specs live in `porter.dev.yaml` / `porter.prod.yaml`. Secrets come from Doppler project `linklingo`.
+
+Pushes to `main` that touch `backend/`, `miniapp/`, `vendor/`, or `docker/` deploy
+the dev app via `.github/workflows/porter-linklingo-miniapp-dev.yml`.
+
+## Permanent install with auto-update
+
+The image bakes the built miniapp and serves it at `<origin>/miniapp`:
+
+```
+GET /miniapp/miniapp.json           manifest the phone probes on every launch
+GET /miniapp/dist/background/…      live background + UI entries
+GET /miniapp/bundle.zip             flat bundle cached for offline launches
+```
+
+Install once on a phone — **Mentra App → Settings → Developer settings → Mini
+App Development → Load from URL** →
+`https://linklingo-miniapp-dev.mentraglass.com/miniapp` — and the home tile
+persists. Every launch re-reads the manifest, runs the current hosted code, and
+refreshes the on-disk copy that keeps the tile working with the backend
+unreachable. So a merge to `main` ships to installed phones with no rescan: they
+run the new build the next time LinkLingo is opened.
+
+`GET /healthz` reports the hosted `miniapp.version` and the backend origin baked
+into it, which is the fastest way to confirm a deploy actually shipped.
+
+Unhosted alternatives: `bun run dev` (laptop must stay up, hot reload) and
+`bun run miniapp:release` (LAN QR, offline install, rescan per version).

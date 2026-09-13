@@ -6,6 +6,7 @@ import {metrics} from "../observability/metrics"
 import {dictionaryDiagnostics} from "../services/frequency"
 import {apiKeyFingerprint, resolveApiKeySource} from "../services/gemini"
 import {glossService} from "../services/gloss.service"
+import {bundleApi, hostedBundleStatus} from "./bundle.api"
 import {glossApi} from "./gloss.api"
 import {requestObservability} from "./observability"
 import {upgradeApi} from "./upgrade.api"
@@ -36,7 +37,7 @@ export function createApp(): Hono {
     return c.json({error: "Not found"}, 404)
   })
 
-  app.get("/healthz", (c) =>
+  app.get("/healthz", async (c) =>
     c.json({
       status: "ok",
       service: "linklingo-miniapp-backend",
@@ -45,6 +46,10 @@ export function createApp(): Hono {
       llmKeySource: resolveApiKeySource() ?? null,
       llmKeyFingerprint: apiKeyFingerprint() ?? null,
       uptimeSeconds: metrics.snapshot().uptimeSeconds,
+      // Which miniapp build this pod hands to phones, and the backend origin
+      // compiled into it. A bundle pointing at the wrong environment is
+      // otherwise invisible until a user's glasses misbehave.
+      miniapp: await hostedBundleStatus(),
     }),
   )
 
@@ -64,6 +69,9 @@ export function createApp(): Hono {
 
   app.route("/api/gloss", glossApi)
   app.route("/api/upgrade", upgradeApi)
+  // Base URL a phone installs from: Developer settings → Mini App Development
+  // → Load from URL → `<origin>/miniapp`.
+  app.route("/miniapp", bundleApi)
 
   return app
 }

@@ -11,6 +11,9 @@
       - main
     paths:
       - "backend/**"
+      # The image bakes the miniapp bundle it serves at /miniapp, so a miniapp
+      # change is a deploy: installed phones pick it up on their next launch.
+      - "miniapp/**"
       - "vendor/**"
       - "docker/**"
       - "porter.dev.yaml"

@@ -10,6 +10,13 @@ build:
   context: .
   dockerfile: ./docker/Dockerfile
 
+# App-level env doubles as build args for the ARGs declared in the Dockerfile.
+# The miniapp bundle inlines this origin at build time and cannot rediscover it
+# on the phone, so it must be this app's own public domain. Verify after a
+# deploy with GET /healthz → miniapp.backendUrl.
+env:
+  MENTRA_PUBLIC_LINKLINGO_BACKEND_URL: https://linklingo-miniapp-prod.mentraglass.com
+
 services:
   - name: backend
     type: web
