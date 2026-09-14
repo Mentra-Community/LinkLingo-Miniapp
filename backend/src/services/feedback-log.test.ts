@@ -17,11 +17,8 @@ function input(overrides: Partial<FeedbackEntryInput> = {}): FeedbackEntryInput 
     tape: {transcripts: 3, glossCalls: 1, windowMs: 600_000},
     analysis: {
       id: "",
-      model: "gemini-3.1-pro",
-      diagnosis: "餐厅 ranks 1700, above the learner's known rank of 1500, so the filter offered it.",
-      likelyCause: "candidate_filter",
-      evidence: ["candidates: 餐厅:1700"],
-      suggestedFix: "Raise proficiency a notch.",
+      model: "gemini-3.1-pro-preview",
+      answer: "餐厅 ranks 1700, above your known rank of 1500, so the filter offered it. Raise proficiency a notch.",
       totalMs: 4200,
     },
     ...overrides,
@@ -45,23 +42,24 @@ describe("FeedbackLog", () => {
     expect(log.list({limit: 2}, 5000).map((e) => e.at)).toEqual([3000, 4000])
   })
 
-  test("stats count by cause", () => {
+  test("stats report the window", () => {
     const log = new FeedbackLog(3_600_000, 100, null)
     log.record(input(), 0)
-    log.record(input({analysis: {...input().analysis, likelyCause: "prompt"}}), 1)
     log.record(input(), 2)
-    expect(log.stats(2).byCause).toEqual({candidate_filter: 2, prompt: 1})
-    expect(log.stats(2).entries).toBe(3)
+    expect(log.stats(2)).toMatchObject({entries: 2, oldestAt: 0, newestAt: 2, retentionHours: 1})
   })
 
-  test("format shows note, rows, diagnosis and fix", () => {
+  test("format shows note, rows and the answer", () => {
     const log = new FeedbackLog(3_600_000, 100, null)
-    const entry = log.record(input(), 0)
+    const entry = log.record(
+      input({snapshot: {...input().snapshot, recentWords: [...input().snapshot.recentWords, {word: "参观", translation: "to visit", at: 900}]}}),
+      0,
+    )
     const text = formatFeedbackEntry(entry)
     expect(text).toContain("user said:  it glossed 餐厅 which I know")
     expect(text).toContain("on glasses: 餐厅 -> restaurant")
-    expect(text).toContain("cause=candidate_filter")
-    expect(text).toContain("fix:        Raise proficiency a notch.")
+    expect(text).toContain("earlier:    参观 -> to visit")
+    expect(text).toContain("analyst:    餐厅 ranks 1700")
     expect(text).toContain("tape=3t/1g")
   })
 })

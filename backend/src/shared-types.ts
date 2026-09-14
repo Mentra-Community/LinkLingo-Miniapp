@@ -66,24 +66,11 @@ export interface FeedbackRequest {
   original: string
 }
 
-export type FeedbackCause =
-  | "asr"
-  | "language_guard"
-  | "candidate_filter"
-  | "prompt"
-  | "model"
-  | "display"
-  | "no_problem"
-  | "unknown"
-
+/** The analyst's plain-text reply to a comment about recent translations. */
 export interface FeedbackAnalysis {
   id: string
   model: string
-  diagnosis: string
-  likelyCause: FeedbackCause
-  evidence: string[]
-  suggestedFix: string
-  suggestedPromptChange?: string
+  answer: string
   totalMs: number
 }
 

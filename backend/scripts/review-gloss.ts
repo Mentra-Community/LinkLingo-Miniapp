@@ -170,24 +170,11 @@ if (wantFeedback) {
     console.log(`no feedback in ${source} since ${since}`)
     process.exit(0)
   }
-  const causes = reports.reduce<Record<string, number>>((acc, e) => {
-    acc[e.analysis.likelyCause] = (acc[e.analysis.likelyCause] ?? 0) + 1
-    return acc
-  }, {})
+  const latencies = reports.map((e) => e.analysis.totalMs).sort((a, b) => a - b)
   console.log("=".repeat(72))
-  console.log(`${reports.length} feedback reports from ${source} since ${since}`)
-  console.log(
-    `causes:      ${Object.entries(causes)
-      .sort((a, b) => b[1] - a[1])
-      .map(([k, n]) => `${k}=${n}`)
-      .join("  ")}`,
-  )
-  const promptChanges = reports.filter((e) => e.analysis.suggestedPromptChange)
-  if (promptChanges.length > 0) {
-    console.log()
-    console.log(`suggested prompt changes (${promptChanges.length}):`)
-    for (const entry of promptChanges) console.log(`  - ${entry.analysis.suggestedPromptChange}`)
-  }
+  console.log(`${reports.length} feedback exchanges from ${source} since ${since}`)
+  console.log(`models:      ${[...new Set(reports.map((e) => e.analysis.model))].join(", ")}`)
+  console.log(`latency:     p50=${latencies[Math.floor(latencies.length * 0.5)]}ms max=${latencies[latencies.length - 1]}ms`)
   process.exit(0)
 }
 

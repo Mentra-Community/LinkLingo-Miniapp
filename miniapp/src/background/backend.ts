@@ -185,7 +185,7 @@ export async function requestFeedback(
     }
     const data = (await res.json()) as FeedbackAnalysis
     diagnostics.increment("feedback.ok")
-    log.info("feedback analysed", {durationMs, cause: data.likelyCause, model: data.model})
+    log.info("feedback answered", {durationMs, model: data.model, answerChars: data.answer.length})
     return {ok: true, data}
   } catch (err) {
     diagnostics.increment("feedback.transport_error")

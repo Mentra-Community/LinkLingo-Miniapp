@@ -45,7 +45,6 @@ export interface FeedbackStats {
   oldestAt: number | null
   newestAt: number | null
   retentionHours: number
-  byCause: Record<string, number>
   file: string | null
 }
 
@@ -75,7 +74,7 @@ export class FeedbackLog {
     }
     this.entries.push(entry)
     this.prune(now)
-    metrics.increment("feedback_entries_total", {cause: entry.analysis.likelyCause})
+    metrics.increment("feedback_entries_total")
     if (this.file) this.append(entry)
     return entry
   }
@@ -94,16 +93,11 @@ export class FeedbackLog {
 
   stats(now = Date.now()): FeedbackStats {
     this.prune(now)
-    const byCause: Record<string, number> = {}
-    for (const entry of this.entries) {
-      byCause[entry.analysis.likelyCause] = (byCause[entry.analysis.likelyCause] ?? 0) + 1
-    }
     return {
       entries: this.entries.length,
       oldestAt: this.entries[0]?.at ?? null,
       newestAt: this.entries[this.entries.length - 1]?.at ?? null,
       retentionHours: this.retentionMs / 3_600_000,
-      byCause,
       file: this.file,
     }
   }
@@ -130,23 +124,22 @@ export class FeedbackLog {
   }
 }
 
-/** One complaint as a reviewer reads it: what the user said, what was on screen, what the analyst decided. */
+/** One exchange as a reviewer reads it: what the user said, what was on screen, what the analyst answered. */
 export function formatFeedbackEntry(entry: FeedbackEntry): string {
   const when = new Date(entry.at).toISOString().replace("T", " ").slice(0, 19)
   const s = entry.snapshot.settings
   const lines = [
-    `[${when}] feedback ${s.inputLanguage}→${s.outputLanguage} p=${s.proficiency} ${s.mode} cause=${entry.analysis.likelyCause} ${entry.analysis.totalMs}ms`,
+    `[${when}] feedback ${s.inputLanguage}→${s.outputLanguage} p=${s.proficiency} ${s.mode} ${entry.analysis.totalMs}ms`,
     `  user said:  ${entry.note.replace(/\s+/g, " ").trim()}`,
     `  on glasses: ${entry.snapshot.shownWords.map((w) => `${w.word} -> ${w.translation}`).join(" | ") || "(no words)"}`,
   ]
+  const recent = entry.snapshot.recentWords.filter((w) => !entry.snapshot.shownWords.some((s) => s.word === w.word))
+  if (recent.length > 0) lines.push(`  earlier:    ${recent.map((w) => `${w.word} -> ${w.translation}`).join(" | ")}`)
   if (entry.snapshot.caption) lines.push(`  caption:    ${entry.snapshot.caption.replace(/\s+/g, " ").trim()}`)
   if (entry.snapshot.translation) lines.push(`  translated: ${entry.snapshot.translation.replace(/\s+/g, " ").trim()}`)
   const heard = entry.snapshot.recentUtterances.slice(-3).map((u) => u.text)
   if (heard.length > 0) lines.push(`  heard:      ${heard.join(" / ")}`)
-  lines.push(`  diagnosis:  ${entry.analysis.diagnosis}`)
-  for (const e of entry.analysis.evidence) lines.push(`    - ${e}`)
-  lines.push(`  fix:        ${entry.analysis.suggestedFix}`)
-  if (entry.analysis.suggestedPromptChange) lines.push(`  prompt:     ${entry.analysis.suggestedPromptChange}`)
+  lines.push(`  analyst:    ${entry.analysis.answer.replace(/\s+/g, " ").trim()}`)
   const meta = [entry.analysis.model, `tape=${entry.tape.transcripts}t/${entry.tape.glossCalls}g`]
   if (entry.user) meta.push(`user=${entry.user}`)
   if (entry.requestId) meta.push(`req=${entry.requestId}`)

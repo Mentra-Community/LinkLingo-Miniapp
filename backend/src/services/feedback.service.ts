@@ -1,16 +1,15 @@
 /**
- * "Ask the analyst": the learner saw something wrong on the glasses and typed
- * a sentence about it. We hand a smarter, slower model everything the pipeline
- * knows about the last few minutes — the phone's snapshot, the transcript tape,
- * the gloss calls with their candidates and rejections, and the live prompt —
- * and ask it to name the failing stage and propose a fix. The verdict goes back
- * to the WebView and into the feedback log for the next prompt-tuning pass.
+ * "Ask the analyst": the learner types a comment or question about what the
+ * glasses just showed. We hand a smarter, slower model the last few
+ * translations and the recent tape — what was heard, what was offered to the
+ * gloss model, what it answered, the live prompt — and let it reply in plain
+ * text. The exchange is kept in the feedback log for later prompt tuning.
  */
 
 import {currentRequestContext} from "../observability/context"
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
-import type {FeedbackAnalysis, FeedbackCause, FeedbackRequest} from "../shared-types"
+import type {FeedbackAnalysis, FeedbackRequest} from "../shared-types"
 import {feedbackLog} from "./feedback-log"
 import {allowMockLlm, generateJson, LlmServiceError, resolveApiKey, resolveAnalystModel} from "./gemini"
 import {GLOSS_SYSTEM} from "./gloss.service"
@@ -19,58 +18,29 @@ import {formatTranscriptEntry, transcriptLog} from "./transcript-log"
 
 const log = createLogger("feedback")
 
-/** How far back the server-side tape is pulled for one complaint. */
+/** How far back the server-side tape is pulled for one comment. */
 const TAPE_WINDOW_MS = 10 * 60_000
 const MAX_TAPE_TRANSCRIPTS = 40
 const MAX_TAPE_GLOSS_CALLS = 20
 const MAX_NOTE_CHARS = 1000
 
-const CAUSES: FeedbackCause[] = [
-  "asr",
-  "language_guard",
-  "candidate_filter",
-  "prompt",
-  "model",
-  "display",
-  "no_problem",
-  "unknown",
-]
+const ANALYST_SYSTEM = `You are the engineer behind LinkLingo, a smart-glasses app for language learners. The learner hears live speech in the INPUT language and the glasses show up to 3 rows of "rare word -> translation in the OUTPUT language", plus optional caption lines of the raw transcript. The learner is now commenting on, or asking about, what they just saw.
 
-const ANALYST_SYSTEM = `You are the engineer on call for LinkLingo, a smart-glasses app for language learners. The learner hears live speech in the INPUT language and the glasses show up to 3 rows of "rare word -> translation in the OUTPUT language", plus optional caption lines of the raw transcript. The learner has just flagged a problem and you must diagnose it from the evidence.
+How the pipeline works, in order:
+1. The phone's speech recogniser produces final utterances (it may mistranscribe, split, or mislabel the language).
+2. The phone skips an utterance whose dominant script is the OUTPUT language (the learner reads that natively). Only applies when the two languages use different scripts.
+3. The backend tokenises the utterance, drops tokens the learner already knows (rank <= KNOWN in a frequency list), drops output-script tokens, and offers the remaining rare tokens to the gloss model as word:rank.
+4. Gemini Flash-Lite runs the gloss prompt (quoted below) over the candidates and picks at most MAX words with translations. The backend rejects picks that are not candidates, untranslated (same script as input), recently shown, or known.
+5. Rows sit on the glasses for ~25s in fixed slots: 3 word rows above 3 caption rows.
 
-The pipeline, in order:
-1. asr — the phone's speech recogniser produces final utterances (may mistranscribe, split, or mislabel the language).
-2. language_guard — the phone skips an utterance whose dominant script is the OUTPUT language (the learner reads that natively). Only applies when the two languages use different scripts.
-3. candidate_filter — the backend tokenises the utterance, drops tokens the learner already knows (rank <= KNOWN in a frequency list), drops output-script tokens, and offers the remaining rare tokens to the gloss model as word:rank.
-4. prompt / model — Gemini Flash-Lite is given the gloss prompt (below) and the candidates, and picks at most MAX words with translations. The backend then rejects picks that are not candidates, untranslated (same script as input), recently shown, or known.
-5. display — rows sit on the glasses for ~25s in fixed slots; 3 word rows above 3 caption rows.
+Reply to the learner directly and briefly, in the language they wrote in (keep quoted tape text, code and identifiers verbatim). Ground everything in the evidence provided: quote the utterance, candidate list, raw model answer or rejection reason when it matters, and never invent tape entries. If they describe a problem, say which stage most plausibly caused it and what concrete change would fix it — including the exact prompt wording if the prompt is at fault. If the behaviour was actually correct, say so and explain why. If they ask a general question, just answer it. Under 150 words, plain prose, no headings.
 
-Your job:
-- Decide which stage most plausibly caused what the learner describes. Use "no_problem" when the behaviour was correct and explain why; use "unknown" when the evidence genuinely cannot decide.
-- Cite concrete evidence from the tape: quote the utterance, the candidate list, the model's raw answer, the rejection reason. Do not invent entries that are not in the evidence.
-- Propose one concrete, minimal fix an engineer could make today. If the cause is the prompt, write the exact sentence(s) to add or change in suggestedPromptChange; otherwise leave it empty.
-- Write for the learner-developer reading on a phone: diagnosis under 80 words, plain language, no headings.
-- Answer in the same language the learner wrote the note in, except keep code, identifiers and quoted tape text verbatim.
-- Return JSON only.`
+Return JSON only: {"answer": "..."}`
 
 const ANALYST_SCHEMA = {
   type: "object",
-  properties: {
-    diagnosis: {type: "string"},
-    likelyCause: {type: "string", enum: CAUSES},
-    evidence: {type: "array", items: {type: "string"}},
-    suggestedFix: {type: "string"},
-    suggestedPromptChange: {type: "string"},
-  },
-  required: ["diagnosis", "likelyCause", "evidence", "suggestedFix"],
-}
-
-interface AnalystAnswer {
-  diagnosis: string
-  likelyCause: string
-  evidence: string[]
-  suggestedFix: string
-  suggestedPromptChange?: string
+  properties: {answer: {type: "string"}},
+  required: ["answer"],
 }
 
 type ThinkingLevel = "minimal" | "low" | "medium" | "high"
@@ -100,10 +70,10 @@ function buildUserPrompt(req: FeedbackRequest, tapeText: string, glossText: stri
     `NOW: ${new Date(now).toISOString()}`,
     `SETTINGS: input=${s.inputLanguage} output=${s.outputLanguage} proficiency=${s.proficiency}/100 mode=${s.mode}`,
     "",
-    `LEARNER'S NOTE:\n${req.note.trim()}`,
+    `LEARNER'S COMMENT:\n${req.note.trim()}`,
     "",
-    `ROWS ON THE GLASSES WHEN THEY WROTE IT:\n${rows(req.shownWords)}`,
-    `ALL WORDS SHOWN RECENTLY (phone memory):\n${rows(req.recentWords)}`,
+    `ROWS ON THE GLASSES RIGHT NOW:\n${rows(req.shownWords)}`,
+    `LAST TRANSLATIONS SHOWN (phone memory):\n${rows(req.recentWords)}`,
     req.caption ? `CAPTION ON THE GLASSES:\n${req.caption}` : "",
     req.translation ? `TRANSLATION MODE TEXT:\n${req.original}\n→ ${req.translation}` : "",
     "",
@@ -117,15 +87,6 @@ function buildUserPrompt(req: FeedbackRequest, tapeText: string, glossText: stri
   ]
     .filter((line) => line !== "")
     .join("\n")
-}
-
-function mockAnalysis(): AnalystAnswer {
-  return {
-    diagnosis: "Mock analyst: LINKLINGO_ALLOW_MOCK_LLM is set, so no model was consulted.",
-    likelyCause: "unknown",
-    evidence: ["mock mode"],
-    suggestedFix: "Run against a real GEMINI_API_KEY to get a diagnosis.",
-  }
 }
 
 export async function analyseFeedback(req: FeedbackRequest, now = Date.now()): Promise<FeedbackAnalysis> {
@@ -153,10 +114,10 @@ export async function analyseFeedback(req: FeedbackRequest, now = Date.now()): P
     promptChars: userPrompt.length,
   })
 
-  let answer: AnalystAnswer
+  let answer: string
   let modelUsed = model
   if (!resolveApiKey() && allowMockLlm()) {
-    answer = mockAnalysis()
+    answer = "Mock analyst: LINKLINGO_ALLOW_MOCK_LLM is set, so no model was consulted."
     modelUsed = "mock"
   } else {
     const result = await generateJson({
@@ -172,25 +133,16 @@ export async function analyseFeedback(req: FeedbackRequest, now = Date.now()): P
       thinkingLevel: resolveAnalystThinking(),
     })
     try {
-      answer = JSON.parse(result.text) as AnalystAnswer
+      answer = String((JSON.parse(result.text) as {answer?: unknown}).answer ?? "").trim()
     } catch (error) {
       metrics.increment("feedback_outcomes_total", {outcome: "unparseable"})
       log.error("analyst returned unparseable JSON", {raw: result.text.slice(0, 400), error})
       throw new LlmServiceError("Analyst returned malformed output", 500)
     }
+    if (!answer) answer = "The analyst did not return an answer."
   }
 
-  const cause = (CAUSES as string[]).includes(answer.likelyCause) ? (answer.likelyCause as FeedbackCause) : "unknown"
-  const analysis: FeedbackAnalysis = {
-    id: "",
-    model: modelUsed,
-    diagnosis: (answer.diagnosis ?? "").trim() || "The analyst did not return a diagnosis.",
-    likelyCause: cause,
-    evidence: Array.isArray(answer.evidence) ? answer.evidence.map(String).filter(Boolean).slice(0, 8) : [],
-    suggestedFix: (answer.suggestedFix ?? "").trim(),
-    suggestedPromptChange: answer.suggestedPromptChange?.trim() || undefined,
-    totalMs: Date.now() - started,
-  }
+  const analysis: FeedbackAnalysis = {id: "", model: modelUsed, answer, totalMs: Date.now() - started}
 
   const {note: _dropped, ...snapshot} = req
   const entry = feedbackLog.record({
@@ -200,10 +152,9 @@ export async function analyseFeedback(req: FeedbackRequest, now = Date.now()): P
     analysis,
   })
   analysis.id = entry.id
-  entry.analysis.id = entry.id
 
-  metrics.increment("feedback_outcomes_total", {outcome: "ok", cause})
+  metrics.increment("feedback_outcomes_total", {outcome: "ok"})
   metrics.observe("feedback_duration", analysis.totalMs)
-  log.info("feedback analysed", {id: entry.id, cause, totalMs: analysis.totalMs})
+  log.info("feedback analysed", {id: entry.id, totalMs: analysis.totalMs, answerChars: answer.length})
   return analysis
 }
