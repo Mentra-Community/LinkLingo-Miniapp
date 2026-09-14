@@ -25,11 +25,14 @@ mock.module("./gemini", () => ({
   },
 }))
 
-const {glossService} = await import("./gloss.service")
+const {glossService, GLOSS_PROMPT_VERSION} = await import("./gloss.service")
+const {reviewLog} = await import("./review-log")
 
 const ZH = "我们今天下午要去参观博物馆，然后在附近的餐厅吃晚饭。"
 /** Carries 深远 (rank ~20675), so candidates survive even at high proficiency. */
 const HARD_ZH = "这个政策的实施对经济发展产生了深远的影响。"
+/** What the glasses hear when the speaker switches to English mid-session. */
+const EN_IN_ZH_SESSION = "Her thesis examines the socioeconomic ramifications of urbanization."
 
 function request(proficiency: number, context = ZH) {
   return {
@@ -43,6 +46,7 @@ function request(proficiency: number, context = ZH) {
 beforeEach(() => {
   calls = []
   reply = '{"words":[]}'
+  reviewLog.clear()
 })
 
 describe("glossService", () => {
@@ -119,5 +123,65 @@ describe("glossService", () => {
     expect(result.words).toHaveLength(1)
     expect(result.words[0].word).toContain("博物馆")
     expect(result.words[0].translation).toBe("museum")
+  })
+
+  describe("language guard", () => {
+    test("English speech in a Chinese→English session never reaches the model", async () => {
+      const result = await glossService.gloss(request(10, EN_IN_ZH_SESSION))
+      expect(result.words).toEqual([])
+      expect(result.profiling.candidateCount).toBe(0)
+      expect(calls).toHaveLength(0)
+    })
+
+    test("English words mixed into Chinese are not offered as candidates", async () => {
+      await glossService.gloss(request(10, `${ZH} ${EN_IN_ZH_SESSION}`))
+      const line = calls[0].user.split("\n").find((l) => l.startsWith("Candidates:"))!
+      expect(line).toMatch(/博物馆:\d+/)
+      expect(line).not.toContain("ramifications")
+      expect(line).not.toContain("socioeconomic")
+    })
+
+    test("drops a translation the model left in the input language", async () => {
+      reply = '{"words":[{"word":"博物馆","translation":"博物院"}]}'
+      const result = await glossService.gloss(request(10))
+      expect(result.words).toEqual([])
+      const entry = reviewLog.list().at(-1)!
+      expect(entry.rejected).toEqual([{word: "博物馆", reason: "untranslated"}])
+    })
+
+    test("the prompt tells the model to skip output-language candidates", async () => {
+      await glossService.gloss(request(10))
+      expect(calls[0].system).toContain("already written in the output language")
+      expect(calls[0].system).not.toContain("Bidirectional")
+    })
+  })
+
+  describe("review log", () => {
+    test("records what the model saw and answered", async () => {
+      reply = '{"words":[{"word":"博物馆","translation":"museum"},{"word":"量子力学","translation":"quantum"}]}'
+      await glossService.gloss(request(10))
+      const entries = reviewLog.list({op: "gloss"})
+      expect(entries).toHaveLength(1)
+      const entry = entries[0]
+      expect(entry.outcome).toBe("words")
+      expect(entry.promptVersion).toBe(GLOSS_PROMPT_VERSION)
+      expect(entry.context).toBe(ZH)
+      expect(entry.candidates!.some((c) => c.startsWith("博物馆:"))).toBe(true)
+      expect(entry.raw).toBe(reply)
+      expect(entry.proposed).toEqual([
+        {word: "博物馆", translation: "museum"},
+        {word: "量子力学", translation: "quantum"},
+      ])
+      expect(entry.accepted.map((p) => p.translation)).toEqual(["museum"])
+      expect(entry.rejected).toEqual([{word: "量子力学", reason: "not_candidate"}])
+      expect(entry.knownRank).toBe(knownRankFor(10))
+    })
+
+    test("records skipped calls but not blank requests", async () => {
+      await glossService.gloss(request(100))
+      expect(reviewLog.list().map((e) => e.outcome)).toEqual(["no_candidates"])
+      await glossService.gloss({...request(10), conversationContext: ""})
+      expect(reviewLog.list()).toHaveLength(1)
+    })
   })
 })

@@ -5,6 +5,7 @@ import {join} from "path"
 
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
+import {tokenInInputLanguage} from "./script"
 
 const log = createLogger("frequency")
 
@@ -367,9 +368,10 @@ export function lookupRank(word: string, language: string): number | null {
   return effectiveRank(cleaned, dict)
 }
 
-function scoreTokens(transcript: string, language: string): ScoredToken[] {
+function scoreTokens(transcript: string, language: string, outputLanguage?: string): ScoredToken[] {
   const lang = normalizeLang(language)
   const seen = new Map<string, ScoredToken>()
+  let offScript = 0
   for (const raw of tokenize(transcript, lang)) {
     const isCjk = CJK.test(raw)
     const cleaned = raw.replace(/[?。!.,;？"，！、]/g, "").trim()
@@ -378,6 +380,13 @@ function scoreTokens(transcript: string, language: string): ScoredToken[] {
     if (!isCjk && cleaned.length < MIN_LATIN_LEN) continue
     if (isNoise(cleaned)) continue
     if (STOP_WORDS.has(cleaned) || STOP_WORDS.has(cleaned.toLowerCase())) continue
+    // A token written in the learner's own language is not vocabulary to
+    // learn, whether it is one loanword or a speaker who switched languages
+    // mid-conversation. Glossing it produced English→English rows.
+    if (outputLanguage && !tokenInInputLanguage(cleaned, language, outputLanguage)) {
+      offScript += 1
+      continue
+    }
     const dict = dictForToken(cleaned, lang)
     const rank = dict ? effectiveRank(cleaned, dict) : null
     if (rank == null) {
@@ -393,6 +402,7 @@ function scoreTokens(transcript: string, language: string): ScoredToken[] {
     if (prior && (prior.rank == null || (rank != null && rank <= prior.rank))) continue
     seen.set(key, {word: key, rank, unknownRank: (dict?.total ?? DEFAULT_DICT_SIZE) + 1})
   }
+  if (offScript > 0) metrics.increment("gloss_tokens_off_script_total", {}, offScript)
   return [...seen.values()]
 }
 
@@ -401,18 +411,22 @@ function scoreTokens(transcript: string, language: string): ScoredToken[] {
  * estimated vocabulary, rarest first. Returns nothing when the speech is fully
  * inside their vocabulary — for a fluent learner that is the correct answer, and
  * the HUD idle line already covers it.
+ *
+ * Pass `outputLanguage` to drop tokens written in the learner's own language;
+ * without it every token is scored, which the corpus checks rely on.
  */
 export function candidateWords(
   transcript: string,
   language: string,
   recent: string[] = [],
   knownRank = knownRankFor(50),
+  outputLanguage?: string,
 ): WordCandidate[] {
   const recentSet = new Set(recent.map((w) => w.toLowerCase().replace(/\s*\([^)]*\)/g, "").trim()))
   const known: WordCandidate[] = []
   const unknown: WordCandidate[] = []
 
-  for (const token of scoreTokens(transcript, language)) {
+  for (const token of scoreTokens(transcript, language, outputLanguage)) {
     if (recentSet.has(token.word.toLowerCase())) continue
     if (token.rank == null) {
       unknown.push({

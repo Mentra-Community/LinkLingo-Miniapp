@@ -4,6 +4,7 @@ import type {UpgradeRequest, UpgradeResponse} from "../shared-types"
 import {knownRankFor, lookupRank} from "./frequency"
 import {allowMockLlm, generateJson, resolveApiKey, resolveModel} from "./gemini"
 import {annotateChinese, isChinese, languageIsChinese, languageWantsPinyin} from "./pinyin"
+import {digest, reviewLog, type ReviewEntryInput} from "./review-log"
 
 const log = createLogger("upgrade")
 
@@ -40,6 +41,8 @@ const UPGRADE_SCHEMA = {
   required: ["word", "meaning"],
 }
 
+export const UPGRADE_PROMPT_VERSION = digest(UPGRADE_SYSTEM)
+
 export class UpgradeService {
   readonly model = resolveModel()
 
@@ -47,7 +50,8 @@ export class UpgradeService {
     const started = Date.now()
     const context = (body.conversationContext ?? "").trim()
     const recent = (body.recentUpgrades ?? []).map((w) => w.toLowerCase())
-    const knownRank = knownRankFor(body.fluencyLevel ?? 50)
+    const proficiency = body.fluencyLevel ?? 50
+    const knownRank = knownRankFor(proficiency)
     const call = log.child({
       in: body.inputLanguage,
       out: body.outputLanguage,
@@ -55,6 +59,22 @@ export class UpgradeService {
       knownRank,
     })
     metrics.increment("upgrade_requests_total", {in: body.inputLanguage, out: body.outputLanguage})
+
+    const review = (fields: Partial<ReviewEntryInput> & {outcome: string; totalMs: number}) =>
+      reviewLog.record({
+        op: "upgrade",
+        model: this.model,
+        promptVersion: UPGRADE_PROMPT_VERSION,
+        inputLanguage: body.inputLanguage,
+        outputLanguage: body.outputLanguage,
+        proficiency,
+        knownRank,
+        context: context.slice(-400),
+        recent,
+        accepted: [],
+        rejected: [],
+        ...fields,
+      })
 
     if (!context) {
       metrics.increment("upgrade_outcomes_total", {outcome: "empty_context"})
@@ -82,13 +102,23 @@ export class UpgradeService {
       `Recent: ${recent.join(", ") || "(none)"}`,
     ].join("\n")
 
-    const result = await generateJson({
-      system: UPGRADE_SYSTEM,
-      user,
-      maxOutputTokens: 64,
-      responseSchema: UPGRADE_SCHEMA,
-      operation: "upgrade",
-    })
+    let result
+    try {
+      result = await generateJson({
+        system: UPGRADE_SYSTEM,
+        user,
+        maxOutputTokens: 64,
+        responseSchema: UPGRADE_SCHEMA,
+        operation: "upgrade",
+      })
+    } catch (error) {
+      review({
+        outcome: "llm_error",
+        raw: error instanceof Error ? error.message : String(error),
+        totalMs: Date.now() - started,
+      })
+      throw error
+    }
 
     let parsed: {word?: string; meaning?: string} = {}
     try {
@@ -143,6 +173,14 @@ export class UpgradeService {
         geminiMs: result.geminiMs,
         totalMs: Date.now() - started,
       })
+      review({
+        outcome: "rejected",
+        raw: result.text,
+        proposed: [{word, translation: meaning}],
+        rejected: [{word: word || "(blank)", reason: reject}],
+        geminiMs: result.geminiMs,
+        totalMs: Date.now() - started,
+      })
       return {
         profiling: {
           totalMs: Date.now() - started,
@@ -170,6 +208,13 @@ export class UpgradeService {
       totalMs,
       geminiMs: result.geminiMs,
       totalTokens: result.usage.totalTokens,
+    })
+    review({
+      outcome: "suggested",
+      raw: result.text,
+      accepted: [{word, translation: meaning}],
+      geminiMs: result.geminiMs,
+      totalMs,
     })
 
     return {

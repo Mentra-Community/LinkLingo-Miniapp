@@ -4,11 +4,13 @@ import type {GlossRequest, GlossResponse, GlossedWord} from "../shared-types"
 import {candidateWords, knownRankFor, lookupRank, type WordCandidate} from "./frequency"
 import {allowMockLlm, generateJson, LlmServiceError, resolveApiKey, resolveModel} from "./gemini"
 import {annotateChinese, isChinese, languageIsChinese, languageWantsPinyin} from "./pinyin"
+import {digest, reviewLog, type ReviewEntryInput} from "./review-log"
+import {looksUntranslated} from "./script"
 
 const log = createLogger("gloss")
 
 /** Why a model-proposed word did not make it to the glasses. */
-type RejectReason = "empty" | "echo" | "recent" | "not_candidate" | "known"
+type RejectReason = "empty" | "echo" | "untranslated" | "recent" | "not_candidate" | "known"
 
 const GLOSS_SYSTEM = `You gloss unfamiliar words for a language learner listening to live speech through smart glasses.
 
@@ -18,8 +20,8 @@ Rules:
 - Pick at most MAX candidates, choosing the ones with the highest learning value: content words (nouns, verbs, adjectives, set phrases) the learner most plausibly cannot follow.
 - Prefer higher-rank candidates, but skip proper names, numbers, mistranscriptions and fragments however rare they look.
 - Pick ONLY from CANDIDATES. Never invent, split or reshape a word.
-- Translate each pick into the output language in 1-4 words, accurate for this context.
-- Bidirectional: if a candidate is already in the output language, translate it into the input language.
+- Translate each pick into the output language in 1-4 words, accurate for this context. The translation must be written in the output language: never a synonym, paraphrase or spelling of the word in its own language.
+- A candidate already written in the output language is not vocabulary to learn — the learner reads that language natively. Skip it.
 - Never re-gloss a word in RECENT.
 - Returning {"words":[]} is a good answer when nothing is worth glossing, which is common for fluent learners.
 - Return JSON only: {"words":[{"word":"...","translation":"..."}]}
@@ -51,6 +53,9 @@ const GLOSS_SCHEMA = {
   },
   required: ["words"],
 }
+
+/** Identifies the prompt an entry in the review log was produced under. */
+export const GLOSS_PROMPT_VERSION = digest(GLOSS_SYSTEM)
 
 function formatCandidates(candidates: WordCandidate[]): string {
   if (candidates.length === 0) return "(none)"
@@ -96,8 +101,27 @@ export class GlossService {
       knownRank,
     })
     const selectStarted = Date.now()
-    const candidates = context ? candidateWords(context, body.inputLanguage, recent, knownRank) : []
+    const candidates = context
+      ? candidateWords(context, body.inputLanguage, recent, knownRank, body.outputLanguage)
+      : []
     const selectMs = Date.now() - selectStarted
+
+    const review = (fields: Partial<ReviewEntryInput> & {outcome: string; totalMs: number}) =>
+      reviewLog.record({
+        op: "gloss",
+        model: this.model,
+        promptVersion: GLOSS_PROMPT_VERSION,
+        inputLanguage: body.inputLanguage,
+        outputLanguage: body.outputLanguage,
+        proficiency,
+        knownRank,
+        context: context.slice(-400),
+        candidates: candidates.map((c) => `${c.word}:${c.rank}`),
+        recent,
+        accepted: [],
+        rejected: [],
+        ...fields,
+      })
 
     metrics.increment("gloss_requests_total", {
       in: body.inputLanguage,
@@ -113,11 +137,12 @@ export class GlossService {
     })
 
     if (!context || candidates.length === 0) {
-      metrics.increment("gloss_outcomes_total", {outcome: context ? "no_candidates" : "empty_context"})
-      call.info("gloss skipped", {
-        reason: context ? "no_candidates" : "empty_context",
-        contextChars: context.length,
-      })
+      const outcome = context ? "no_candidates" : "empty_context"
+      metrics.increment("gloss_outcomes_total", {outcome})
+      call.info("gloss skipped", {reason: outcome, contextChars: context.length})
+      // Skips are logged too: a Chinese session that keeps producing
+      // no_candidates is what an English speaker looks like after the filter.
+      if (context) review({outcome, totalMs: Date.now() - started})
       return {
         words: [],
         profiling: {
@@ -133,8 +158,10 @@ export class GlossService {
       const first = candidates[0]
       metrics.increment("gloss_outcomes_total", {outcome: "mock"})
       call.warn("serving mock gloss: no API key and mock mode enabled")
+      const mockWord = annotatePair(first.word, first.word, body.inputLanguage, body.outputLanguage)
+      review({outcome: "mock", accepted: [mockWord], totalMs: Date.now() - started})
       return {
-        words: [annotatePair(first.word, first.word, body.inputLanguage, body.outputLanguage)],
+        words: [mockWord],
         profiling: {
           totalMs: Date.now() - started,
           model: "mock",
@@ -153,13 +180,23 @@ export class GlossService {
       `Recent: ${recent.join(", ") || "(none)"}`,
     ].join("\n")
 
-    const result = await generateJson({
-      system: GLOSS_SYSTEM,
-      user,
-      maxOutputTokens: 192,
-      responseSchema: GLOSS_SCHEMA,
-      operation: "gloss",
-    })
+    let result
+    try {
+      result = await generateJson({
+        system: GLOSS_SYSTEM,
+        user,
+        maxOutputTokens: 192,
+        responseSchema: GLOSS_SCHEMA,
+        operation: "gloss",
+      })
+    } catch (error) {
+      review({
+        outcome: "llm_error",
+        raw: error instanceof Error ? error.message : String(error),
+        totalMs: Date.now() - started,
+      })
+      throw error
+    }
 
     let parsed: {words?: Array<{word?: string; translation?: string}>} = {}
     let parseFailed = false
@@ -198,6 +235,12 @@ export class GlossService {
         reject("echo")
         continue
       }
+      // "ramifications -> consequences" is an English synonym, not an English
+      // gloss of Chinese. Exact-echo alone let every such row through.
+      if (looksUntranslated(translation, body.inputLanguage, body.outputLanguage)) {
+        reject("untranslated")
+        continue
+      }
       const bare = word.toLowerCase().replace(/\s*\([^)]*\)/g, "").trim()
       if (recentSet.has(bare)) {
         reject("recent")
@@ -222,11 +265,19 @@ export class GlossService {
     }
 
     const totalMs = Date.now() - started
+    const outcome = parseFailed ? "parse_failed" : words.length > 0 ? "words" : "no_words"
     metrics.observe("gloss_total_duration", totalMs)
-    metrics.increment("gloss_outcomes_total", {
-      outcome: parseFailed ? "parse_failed" : words.length > 0 ? "words" : "no_words",
-    })
+    metrics.increment("gloss_outcomes_total", {outcome})
     metrics.increment("gloss_words_emitted_total", {}, words.length)
+    review({
+      outcome,
+      raw: result.text,
+      proposed: proposed.map((p) => ({word: (p.word ?? "").trim(), translation: (p.translation ?? "").trim()})),
+      accepted: words,
+      rejected,
+      geminiMs: result.geminiMs,
+      totalMs,
+    })
 
     call.info("gloss complete", {
       totalMs,

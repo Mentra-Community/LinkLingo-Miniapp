@@ -90,3 +90,29 @@ into it, which is the fastest way to confirm a deploy actually shipped.
 
 Unhosted alternatives: `bun run dev` (laptop must stay up, hot reload) and
 `bun run miniapp:release` (LAN QR, offline install, rescan per version).
+
+## Reviewing model output
+
+The backend keeps the last ~24h of every gloss and upgrade call — the
+transcript window the model saw, the `word:rank` candidates it was offered, its
+verbatim answer, what reached the glasses, and what the filter dropped and why.
+Read it with:
+
+```
+bun run review:doppler                       # last 24h from the dev deployment
+bun run review:doppler -- --since 6h --problems   # only calls where the model broke a rule
+bun run review:doppler -- --save backend/data/review.jsonl   # archive locally
+bun run review -- --file backend/data/review.jsonl --since 7d # review the archive
+```
+
+Each entry carries `prompt=<hash>` so output before and after a prompt edit can
+be compared. The pod's copy is in memory and resets on redeploy; `--save`
+appends new entries (deduplicated) to a JSONL file, so a daily run keeps a
+durable history. `--problems` is the prompt-tuning view: `untranslated` means
+the model answered in the wrong language, `echo` that it repeated the word,
+`not_candidate` that it invented a word off the list.
+
+The raw endpoint is `GET /api/review/entries?since=24h[&op=gloss][&format=text]`
+with `Authorization: Bearer $LINKLINGO_REVIEW_TOKEN`. It only exists when that
+token is set (entries contain conversation transcripts); it lives in Doppler
+`linklingo/dev`, which is why the `:doppler` script needs no setup.

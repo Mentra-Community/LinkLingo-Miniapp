@@ -27,6 +27,8 @@
     "freq:build": "bun backend/scripts/build-frequency-data.ts",
     "eval:gloss": "LOG_LEVEL=silent bun backend/scripts/eval-gloss.ts",
     "eval:gloss:doppler": "doppler run --project linklingo --config dev --preserve-env -- bun run eval:gloss",
+    "review": "LOG_LEVEL=silent bun backend/scripts/review-gloss.ts",
+    "review:doppler": "doppler run --project linklingo --config dev --preserve-env -- bun run review",
     "sync-vendor": "bash scripts/sync-vendor.sh"
   },
   "dependencies": {

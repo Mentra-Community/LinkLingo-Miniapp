@@ -37,6 +37,15 @@ export interface GlossedWord {
   at: number
 }
 
+/**
+ * Word rows the HUD reserves in each mode. Words-only has the whole display;
+ * with captions the rows sit above a caption that must not move when a word
+ * arrives, so the block is a fixed height whether or not it is full.
+ */
+export function wordRowsFor(mode: LinkLingoMode): number {
+  return mode === "gloss" ? 3 : 2
+}
+
 export interface TranscriptLine {
   text: string
   isFinal: boolean

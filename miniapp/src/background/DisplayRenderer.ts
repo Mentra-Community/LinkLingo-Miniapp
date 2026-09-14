@@ -3,12 +3,18 @@ import type {MiniappSession} from "@mentra/miniapp/background"
 import {CaptionsFormatter, G1_PROFILE, type DisplayProfile} from "../core/CaptionsFormatter"
 import {convertToPinyin} from "../core/ChineseUtils"
 import type {GlossedWord, LinkLingoSettings} from "../shared/types"
+import {wordRowsFor} from "../shared/types"
 import {createLogger, diagnostics} from "./observability"
 
 const log = createLogger("display")
 
 const INACTIVITY_MS = 40_000
-const IDLE_LINE = "LinkLingo · listening"
+export const IDLE_LINE = "LinkLingo · listening"
+/**
+ * A word slot with no word in it yet. A single space rather than an empty
+ * string so the row survives any trimming between here and the glasses.
+ */
+export const EMPTY_ROW = " "
 /**
  * Every send is a full EvenHub page rebuild over BLE on G2. Interim
  * transcription and translation events arrive ~10x/second, which saturates the
@@ -115,21 +121,15 @@ export class DisplayRenderer {
    * down and rebuild, which is why mode switches used to blank the glasses.
    */
   private compose(settings: LinkLingoSettings): string {
-    const wordText = formatWords(this.lastWords)
-    const caption = this.lastCaption.trim()
-    const translation = this.lastTranslation.trim()
-    const original = this.lastOriginal.trim()
-
-    if (settings.mode === "translation") {
-      return joinRows([translation, original]) || IDLE_LINE
-    }
-    if (settings.mode === "gloss") {
-      // Words-only used to send an empty wall whenever Gemini returned
-      // nothing, which is what the user saw: captions on the phone, black
-      // glasses. Fall back to the live caption so the HUD always has ink.
-      return wordText || caption || IDLE_LINE
-    }
-    return joinRows([wordText, caption]) || IDLE_LINE
+    return composeHud(
+      {
+        words: this.lastWords,
+        caption: this.lastCaption,
+        translation: this.lastTranslation,
+        original: this.lastOriginal,
+      },
+      settings,
+    )
   }
 
   private send(text: string, settings: LinkLingoSettings): void {
@@ -193,12 +193,50 @@ export class DisplayRenderer {
   }
 }
 
+export interface HudState {
+  words: GlossedWord[]
+  caption: string
+  translation: string
+  original: string
+}
+
+/**
+ * The frame the glasses show, as a pure function of state so it can be tested
+ * without a session.
+ *
+ * With captions on, the word block is a fixed number of rows: empty slots are
+ * padded so the caption sits on the same line whether zero, one or two words
+ * are showing. Before this the caption started on row 1 and was pushed down a
+ * row each time a word arrived, which read as the whole display jumping.
+ */
+export function composeHud(state: HudState, settings: LinkLingoSettings): string {
+  const wordRows = formatWords(state.words)
+  const caption = state.caption.trim()
+  const translation = state.translation.trim()
+  const original = state.original.trim()
+
+  if (settings.mode === "translation") {
+    return joinRows([translation, original]) || IDLE_LINE
+  }
+  if (settings.mode === "gloss") {
+    // Words-only used to send an empty wall whenever Gemini returned
+    // nothing, which is what the user saw: captions on the phone, black
+    // glasses. Fall back to the live caption so the HUD always has ink.
+    // Nothing sits below the words here, so no slot padding is needed.
+    return wordRows.join("\n") || caption || IDLE_LINE
+  }
+  if (wordRows.length === 0 && !caption) return IDLE_LINE
+  const slots = wordRowsFor(settings.mode)
+  const padded = [...wordRows, ...Array<string>(Math.max(0, slots - wordRows.length)).fill(EMPTY_ROW)]
+  return joinRows([...padded, caption])
+}
+
 function joinRows(rows: string[]): string {
   return rows.filter((row) => row.length > 0).join("\n")
 }
 
-function formatWords(words: GlossedWord[]): string {
-  return words.map((w) => `${w.isUpgrade ? "^ " : ""}${w.word} -> ${w.translation}`).join("\n")
+function formatWords(words: GlossedWord[]): string[] {
+  return words.map((w) => `${w.isUpgrade ? "^ " : ""}${w.word} -> ${w.translation}`)
 }
 
 function maybePinyin(text: string, settings: LinkLingoSettings): string {

@@ -1,7 +1,8 @@
 import type {MiniappSession} from "@mentra/miniapp/background"
 
+import {utteranceInInputLanguage} from "../shared/script"
 import type {GlossedWord, LinkLingoProfiling, LinkLingoSettings} from "../shared/types"
-import {inputLanguage, outputLanguage} from "../shared/types"
+import {inputLanguage, outputLanguage, wordRowsFor} from "../shared/types"
 import {requestGloss, requestUpgrade} from "./backend"
 import {createLogger, diagnostics} from "./observability"
 import {hasSentenceEnd, stripIncompleteLastWord, type TranscriptBuffer} from "./TranscriptBuffer"
@@ -44,6 +45,16 @@ export class GlossEngine {
   consider(text: string, isFinal: boolean, settings: LinkLingoSettings): void {
     if (settings.mode === "translation") return
     const now = Date.now()
+    // Speech in the learner's own language has nothing to gloss. Skipping it
+    // here saves the round trip; the backend applies the same filter per
+    // token for mixed contexts.
+    if (!utteranceInInputLanguage(text, inputLanguage(settings), outputLanguage(settings))) {
+      if (isFinal) {
+        diagnostics.increment("engine.gloss_skipped.language_mismatch")
+        log.debug("utterance is in the output language; not glossing", {chars: text.trim().length})
+      }
+      return
+    }
     const shouldGloss =
       (isFinal && text.trim().length >= MIN_FINAL_CHARS) ||
       (!isFinal && hasSentenceEnd(text) && stripIncompleteLastWord(text).length >= MIN_FINAL_CHARS)
@@ -54,7 +65,7 @@ export class GlossEngine {
   }
 
   currentWords(glossed: GlossedWord[], settings: LinkLingoSettings): GlossedWord[] {
-    const maxGloss = settings.mode === "gloss" ? 3 : 2
+    const maxGloss = wordRowsFor(settings.mode)
     const glossRows = glossed.slice(-maxGloss)
     if (!settings.wordUpgrades || !this.shownUpgrade) return glossRows
     const room = Math.max(0, maxGloss - 1)

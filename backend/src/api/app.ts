@@ -9,6 +9,7 @@ import {glossService} from "../services/gloss.service"
 import {bundleApi, hostedBundleStatus} from "./bundle.api"
 import {glossApi} from "./gloss.api"
 import {requestObservability} from "./observability"
+import {reviewApi} from "./review.api"
 import {upgradeApi} from "./upgrade.api"
 
 const log = createLogger("app")
@@ -69,6 +70,9 @@ export function createApp(): Hono {
 
   app.route("/api/gloss", glossApi)
   app.route("/api/upgrade", upgradeApi)
+  // Last ~24h of model input/output for prompt tuning. Only mounted in effect
+  // when LINKLINGO_REVIEW_TOKEN is set; see `bun run review`.
+  app.route("/api/review", reviewApi)
   // Base URL a phone installs from: Developer settings → Mini App Development
   // → Load from URL → `<origin>/miniapp`.
   app.route("/miniapp", bundleApi)
