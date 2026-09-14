@@ -114,3 +114,13 @@ export function inputLanguage(settings: LinkLingoSettings): string {
 export function outputLanguage(settings: LinkLingoSettings): string {
   return settings.swapDirection ? settings.sourceLanguage : settings.targetLanguage
 }
+
+/** Why a final utterance did or did not go to the gloss backend. */
+export type TranscriptDisposition =
+  | "queued_gloss"
+  | "skipped_language"
+  | "skipped_short"
+  | "skipped_duplicate"
+  | "skipped_cooldown"
+  | "translation_mode"
+  | "heard"

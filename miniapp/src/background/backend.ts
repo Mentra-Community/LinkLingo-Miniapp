@@ -1,6 +1,6 @@
 import type {MiniappSession} from "@mentra/miniapp/background"
 
-import type {GlossedWord, LinkLingoProfiling} from "../shared/types"
+import type {GlossedWord, LinkLingoProfiling, TranscriptDisposition} from "../shared/types"
 import {createLogger, diagnostics} from "./observability"
 
 const log = createLogger("api")
@@ -116,6 +116,41 @@ export async function requestGloss(
     log.error("gloss transport failure", {durationMs, url: BACKEND_URL, error: err as Error})
     return {ok: false, message: "Cannot reach LinkLingo backend"}
   }
+}
+
+export function reportTranscript(
+  session: MiniappSession,
+  body: {
+    text: string
+    detectedLanguage?: string
+    inputLanguage: string
+    outputLanguage: string
+    fluencyLevel: number
+    mode: string
+    disposition: TranscriptDisposition
+  },
+): void {
+  const started = Date.now()
+  diagnostics.increment("transcript.reports")
+  void session.auth
+    .fetch(url("/api/transcript"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    })
+    .then((res) => {
+      diagnostics.observe("transcript.roundTrip", Date.now() - started)
+      if (!res.ok) {
+        diagnostics.increment(`transcript.http_${res.status}`)
+        log.debug("transcript report rejected", {status: res.status, disposition: body.disposition})
+        return
+      }
+      diagnostics.increment("transcript.ok")
+    })
+    .catch((err) => {
+      diagnostics.increment("transcript.transport_error")
+      log.debug("transcript report failed", {error: err as Error})
+    })
 }
 
 export async function requestUpgrade(

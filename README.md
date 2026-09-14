@@ -112,7 +112,18 @@ durable history. `--problems` is the prompt-tuning view: `untranslated` means
 the model answered in the wrong language, `echo` that it repeated the word,
 `not_candidate` that it invented a word off the list.
 
-The raw endpoint is `GET /api/review/entries?since=24h[&op=gloss][&format=text]`
-with `Authorization: Bearer $LINKLINGO_REVIEW_TOKEN`. It only exists when that
-token is set (entries contain conversation transcripts); it lives in Doppler
-`linklingo/dev`, which is why the `:doppler` script needs no setup.
+Every final utterance the glasses hear is also kept on the same 24h tape,
+including speech the phone skipped (wrong language, too short, cooldown).
+Each line is annotated with the rare-word candidates the frequency filter
+would have offered — that is the "should this have been glossed?" view.
+
+```
+bun run review:doppler -- --transcripts
+bun run review:doppler -- --transcripts --save backend/data/transcripts.jsonl
+```
+
+The raw endpoints are `GET /api/review/entries` (model I/O) and
+`GET /api/review/transcripts` (heard speech), both behind
+`Authorization: Bearer $LINKLINGO_REVIEW_TOKEN`. They only exist when that
+token is set; it lives in Doppler `linklingo/dev`, which is why the
+`:doppler` script needs no setup.

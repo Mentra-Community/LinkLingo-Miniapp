@@ -7,8 +7,10 @@ import type {
   LinkLingoProfiling,
   LinkLingoSettings,
   LinkLingoSnapshot,
+  TranscriptDisposition,
 } from "../shared/types"
 import {inputLanguage, outputLanguage} from "../shared/types"
+import {reportTranscript} from "./backend"
 import {DisplayRenderer} from "./DisplayRenderer"
 import {GlossEngine} from "./GlossEngine"
 import {toLocale} from "./locales"
@@ -269,7 +271,8 @@ export class LinkLingoController {
     this.caption = text
     this.display.showCaption(text, data.isFinal, this.settings, this.engine.currentWords(this.words, this.settings))
     this.ui.send("link:caption", {text, isFinal: data.isFinal})
-    this.engine.consider(text, data.isFinal, this.settings)
+    const disposition = this.engine.consider(text, data.isFinal, this.settings)
+    if (data.isFinal && text && disposition) this.recordTranscript(text, data.language, disposition)
   }
 
   private handleTranslation(data: TranslationData): void {
@@ -292,6 +295,21 @@ export class LinkLingoController {
     this.translation = translated
     this.display.showTranslation(original, translated, this.settings)
     this.ui.send("link:translation", {original, translated, isFinal: data.isFinal})
+    if (data.isFinal && (original || translated)) {
+      this.recordTranscript(original || translated, data.sourceLanguage, "translation_mode")
+    }
+  }
+
+  private recordTranscript(text: string, detectedLanguage: string | undefined, disposition: TranscriptDisposition): void {
+    reportTranscript(this.session, {
+      text,
+      detectedLanguage,
+      inputLanguage: inputLanguage(this.settings),
+      outputLanguage: outputLanguage(this.settings),
+      fluencyLevel: this.settings.proficiency,
+      mode: this.settings.mode,
+      disposition,
+    })
   }
 
   private snapshot(): LinkLingoSnapshot {

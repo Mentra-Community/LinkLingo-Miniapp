@@ -1,7 +1,7 @@
 import type {MiniappSession} from "@mentra/miniapp/background"
 
 import {utteranceInInputLanguage} from "../shared/script"
-import type {GlossedWord, LinkLingoProfiling, LinkLingoSettings} from "../shared/types"
+import type {GlossedWord, LinkLingoProfiling, LinkLingoSettings, TranscriptDisposition} from "../shared/types"
 import {inputLanguage, outputLanguage, wordRowsFor} from "../shared/types"
 import {requestGloss, requestUpgrade} from "./backend"
 import {createLogger, diagnostics} from "./observability"
@@ -42,8 +42,8 @@ export class GlossEngine {
     private readonly callbacks: GlossEngineCallbacks,
   ) {}
 
-  consider(text: string, isFinal: boolean, settings: LinkLingoSettings): void {
-    if (settings.mode === "translation") return
+  consider(text: string, isFinal: boolean, settings: LinkLingoSettings): TranscriptDisposition | null {
+    if (settings.mode === "translation") return isFinal ? "translation_mode" : null
     const now = Date.now()
     // Speech in the learner's own language has nothing to gloss. Skipping it
     // here saves the round trip; the backend applies the same filter per
@@ -52,16 +52,19 @@ export class GlossEngine {
       if (isFinal) {
         diagnostics.increment("engine.gloss_skipped.language_mismatch")
         log.debug("utterance is in the output language; not glossing", {chars: text.trim().length})
+        return "skipped_language"
       }
-      return
+      return null
     }
     const shouldGloss =
       (isFinal && text.trim().length >= MIN_FINAL_CHARS) ||
       (!isFinal && hasSentenceEnd(text) && stripIncompleteLastWord(text).length >= MIN_FINAL_CHARS)
-    if (shouldGloss) this.queueGloss(settings, now)
+    let disposition: TranscriptDisposition | null = isFinal ? "skipped_short" : null
+    if (shouldGloss) disposition = this.queueGloss(settings, now)
     if (settings.wordUpgrades && now - this.lastUpgradeAt >= UPGRADE_COOLDOWN_MS) {
       void this.runUpgrade(settings)
     }
+    return isFinal ? disposition : null
   }
 
   currentWords(glossed: GlossedWord[], settings: LinkLingoSettings): GlossedWord[] {
@@ -94,15 +97,15 @@ export class GlossEngine {
     }
   }
 
-  private queueGloss(settings: LinkLingoSettings, now: number): void {
+  private queueGloss(settings: LinkLingoSettings, now: number): TranscriptDisposition {
     const context = this.contextForCall(false)
     if (!context) {
       diagnostics.increment("engine.gloss_skipped.no_context")
-      return
+      return "skipped_short"
     }
     if (context === this.lastGlossContext) {
       diagnostics.increment("engine.gloss_skipped.duplicate")
-      return
+      return "skipped_duplicate"
     }
     if (this.glossInFlight) {
       // Coalesced rather than dropped: the newest context replaces any older
@@ -110,15 +113,16 @@ export class GlossEngine {
       diagnostics.increment("engine.gloss_coalesced")
       log.debug("gloss coalesced behind in-flight call", {contextChars: context.length})
       this.pendingContext = context
-      return
+      return "queued_gloss"
     }
     const sinceLast = now - this.lastGlossAt
     if (sinceLast < GLOSS_COOLDOWN_MS) {
       diagnostics.increment("engine.gloss_skipped.cooldown")
       log.debug("gloss suppressed by cooldown", {sinceLast, cooldownMs: GLOSS_COOLDOWN_MS})
-      return
+      return "skipped_cooldown"
     }
     void this.runGloss(settings, context)
+    return "queued_gloss"
   }
 
   private async runGloss(settings: LinkLingoSettings, context: string): Promise<void> {

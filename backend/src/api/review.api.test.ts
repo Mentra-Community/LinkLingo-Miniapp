@@ -1,6 +1,7 @@
 import {afterAll, beforeEach, describe, expect, test} from "bun:test"
 
 import {reviewLog} from "../services/review-log"
+import {transcriptLog} from "../services/transcript-log"
 import {parseTime, reviewApi} from "./review.api"
 
 const previousToken = process.env.LINKLINGO_REVIEW_TOKEN
@@ -12,6 +13,7 @@ afterAll(() => {
 
 beforeEach(() => {
   reviewLog.clear()
+  transcriptLog.clear()
   process.env.LINKLINGO_REVIEW_TOKEN = "s3cret"
   reviewLog.record({
     op: "gloss",
@@ -78,9 +80,29 @@ describe("review api", () => {
   })
 
   test("reports stats", async () => {
-    const stats = (await (await reviewApi.request("/stats", auth)).json()) as {entries: number; byOutcome: object}
-    expect(stats.entries).toBe(2)
-    expect(stats.byOutcome).toEqual({words: 1, suggested: 1})
+    const stats = (await (await reviewApi.request("/stats", auth)).json()) as {
+      review: {entries: number; byOutcome: object}
+      transcripts: {entries: number}
+    }
+    expect(stats.review.entries).toBe(2)
+    expect(stats.review.byOutcome).toEqual({words: 1, suggested: 1})
+    expect(stats.transcripts.entries).toBe(0)
+  })
+
+  test("lists the transcript tape", async () => {
+    transcriptLog.record({
+      text: "我们今天下午要去参观博物馆",
+      inputLanguage: "zh",
+      outputLanguage: "en",
+      fluencyLevel: 10,
+      mode: "gloss-captions",
+      disposition: "queued_gloss",
+    })
+    const json = (await (await reviewApi.request("/transcripts", auth)).json()) as {count: number}
+    expect(json.count).toBe(1)
+    const text = await (await reviewApi.request("/transcripts?format=text", auth)).text()
+    expect(text).toContain("heard:      我们今天下午要去参观博物馆")
+    expect(text).toContain("would gloss:")
   })
 
   test("parses relative, epoch and ISO times", () => {

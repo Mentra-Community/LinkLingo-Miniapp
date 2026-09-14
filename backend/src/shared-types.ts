@@ -39,3 +39,27 @@ export interface UpgradeResponse {
   meaning?: string
   profiling: GlossProfiling
 }
+
+/**
+ * Why this final utterance did or did not go to the model. The transcript
+ * tape records every final, including the ones the phone skipped, so a
+ * reviewer can see speech the glasses heard but never glossed.
+ */
+export type TranscriptDisposition =
+  | "queued_gloss"
+  | "skipped_language"
+  | "skipped_short"
+  | "skipped_duplicate"
+  | "skipped_cooldown"
+  | "translation_mode"
+  | "heard"
+
+export interface TranscriptRequest {
+  text: string
+  detectedLanguage?: string
+  inputLanguage: string
+  outputLanguage: string
+  fluencyLevel: number
+  mode: string
+  disposition: TranscriptDisposition
+}
