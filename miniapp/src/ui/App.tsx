@@ -9,6 +9,7 @@ import type {
   LinkLingoSnapshot,
 } from "../shared/types"
 import {DEFAULT_SETTINGS, inputLanguage, knownRankFor, outputLanguage} from "../shared/types"
+import {version as APP_VERSION} from "../../miniapp.json"
 import {LANGUAGES, languageName, languageOptionLabel} from "./lib/languages"
 
 const MODES: Array<{id: LinkLingoMode; label: string}> = [
@@ -327,6 +328,7 @@ export function App() {
             </button>
           </div>
         </div>
+        <p className="app-version">LinkLingo {APP_VERSION}</p>
       </div>
     </div>
   )
