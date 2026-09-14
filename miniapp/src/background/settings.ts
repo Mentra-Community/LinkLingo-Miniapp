@@ -2,6 +2,7 @@ import type {MiniappSession} from "@mentra/miniapp/background"
 
 import {
   DEFAULT_SETTINGS,
+  HUD_CAPTION_LINES,
   SETTINGS_SCHEMA_VERSION,
   type LinkLingoMode,
   type LinkLingoSettings,
@@ -58,7 +59,7 @@ export function normalizeSettings(settings: LinkLingoSettings): LinkLingoSetting
     targetLanguage: settings.targetLanguage || "en",
     proficiency: clamp(settings.proficiency, 0, 100),
     mode: modes.includes(settings.mode) ? settings.mode : "gloss-captions",
-    displayLines: clamp(settings.displayLines, 2, 5),
+    displayLines: clamp(settings.displayLines, 1, HUD_CAPTION_LINES),
     displayWidth: settings.displayWidth === 0 || settings.displayWidth === 2 ? settings.displayWidth : 1,
   }
 }
@@ -71,16 +72,16 @@ export function migrateSettings(parsed: Partial<LinkLingoSettings>): LinkLingoSe
     (parsed.sourceLanguage ?? "en") === "en" &&
     (parsed.targetLanguage ?? "zh") === "zh"
 
-  if (!stillOldDefaultPair) {
-    return next
+  if (stillOldDefaultPair) {
+    next.sourceLanguage = "zh"
+    next.targetLanguage = "en"
+    next.swapDirection = false
   }
-
-  return normalizeSettings({
-    ...next,
-    sourceLanguage: "zh",
-    targetLanguage: "en",
-    swapDirection: false,
-  })
+  // v3 locked the HUD to 3 caption slots. A stored 4 or 5 would still be
+  // clamped; a stored 2 would leave a short caption block and look like the
+  // old jump if we did not lift it.
+  if (version < 3) next.displayLines = HUD_CAPTION_LINES
+  return normalizeSettings(next)
 }
 
 function clamp(n: number, min: number, max: number): number {

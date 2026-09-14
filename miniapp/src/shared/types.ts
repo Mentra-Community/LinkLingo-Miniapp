@@ -14,7 +14,12 @@ export interface LinkLingoSettings {
   pinyinDisplay: boolean
 }
 
-export const SETTINGS_SCHEMA_VERSION = 2
+export const SETTINGS_SCHEMA_VERSION = 3
+
+/** Word rows the glasses always reserve. New words fill these slots; they never grow the page. */
+export const HUD_WORD_ROWS = 3
+/** Caption rows below the gap. The formatter may keep fewer; the frame is still this tall. */
+export const HUD_CAPTION_LINES = 3
 
 export const DEFAULT_SETTINGS: LinkLingoSettings = {
   schemaVersion: SETTINGS_SCHEMA_VERSION,
@@ -24,7 +29,7 @@ export const DEFAULT_SETTINGS: LinkLingoSettings = {
   proficiency: 33,
   mode: "gloss-captions",
   wordUpgrades: false,
-  displayLines: 2,
+  displayLines: HUD_CAPTION_LINES,
   displayWidth: 1,
   wordBreaking: false,
   pinyinDisplay: true,
@@ -37,13 +42,9 @@ export interface GlossedWord {
   at: number
 }
 
-/**
- * Word rows the HUD reserves in each mode. Words-only has the whole display;
- * with captions the rows sit above a caption that must not move when a word
- * arrives, so the block is a fixed height whether or not it is full.
- */
-export function wordRowsFor(mode: LinkLingoMode): number {
-  return mode === "gloss" ? 3 : 2
+/** Word slots shown on the HUD. Same count in every gloss mode so a mode switch does not jump. */
+export function wordRowsFor(_mode: LinkLingoMode): number {
+  return HUD_WORD_ROWS
 }
 
 export interface TranscriptLine {

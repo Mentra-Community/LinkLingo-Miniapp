@@ -8,7 +8,7 @@ import type {
   LinkLingoSettings,
   LinkLingoSnapshot,
 } from "../shared/types"
-import {DEFAULT_SETTINGS, inputLanguage, knownRankFor, outputLanguage} from "../shared/types"
+import {DEFAULT_SETTINGS, HUD_CAPTION_LINES, inputLanguage, knownRankFor, outputLanguage} from "../shared/types"
 import {version as APP_VERSION} from "../../miniapp.json"
 import {LANGUAGES, languageName, languageOptionLabel} from "./lib/languages"
 
@@ -263,8 +263,8 @@ export function App() {
                   <input
                     className="slider"
                     type="range"
-                    min={2}
-                    max={5}
+                    min={1}
+                    max={HUD_CAPTION_LINES}
                     value={settings.displayLines}
                     onChange={(e) =>
                       setSetting(

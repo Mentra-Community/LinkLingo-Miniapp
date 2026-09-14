@@ -57,4 +57,15 @@ describe("migrateSettings", () => {
     expect(next.targetLanguage).toBe("en")
     expect(next.schemaVersion).toBe(SETTINGS_SCHEMA_VERSION)
   })
+
+  test("lifts a pre-v3 caption-line setting to the locked 3-line block", () => {
+    const next = migrateSettings({
+      schemaVersion: 2,
+      sourceLanguage: "zh",
+      targetLanguage: "en",
+      displayLines: 2,
+    })
+    expect(next.displayLines).toBe(3)
+    expect(next.schemaVersion).toBe(SETTINGS_SCHEMA_VERSION)
+  })
 })

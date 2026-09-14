@@ -3,7 +3,7 @@ import type {MiniappSession} from "@mentra/miniapp/background"
 import {CaptionsFormatter, G1_PROFILE, type DisplayProfile} from "../core/CaptionsFormatter"
 import {convertToPinyin} from "../core/ChineseUtils"
 import type {GlossedWord, LinkLingoSettings} from "../shared/types"
-import {wordRowsFor} from "../shared/types"
+import {HUD_CAPTION_LINES, HUD_WORD_ROWS, wordRowsFor} from "../shared/types"
 import {createLogger, diagnostics} from "./observability"
 
 const log = createLogger("display")
@@ -37,7 +37,7 @@ export class DisplayRenderer {
 
   constructor(private readonly session: MiniappSession) {
     this.formatter = this.makeFormatter({
-      displayLines: 2,
+      displayLines: HUD_CAPTION_LINES,
       displayWidth: 1,
       wordBreaking: false,
     } as LinkLingoSettings)
@@ -186,7 +186,7 @@ export class DisplayRenderer {
     const widthScale = settings.displayWidth === 0 ? 0.7 : settings.displayWidth === 1 ? 0.85 : 1
     return new CaptionsFormatter(profile, {
       maxFinalTranscripts: 10,
-      maxLines: settings.displayLines,
+      maxLines: Math.min(HUD_CAPTION_LINES, Math.max(1, settings.displayLines)),
       displayWidthPx: Math.floor(profile.displayWidthPx * widthScale),
       breakMode: settings.wordBreaking ? "character" : "word",
     })
@@ -204,31 +204,38 @@ export interface HudState {
  * The frame the glasses show, as a pure function of state so it can be tested
  * without a session.
  *
- * With captions on, the word block is a fixed number of rows: empty slots are
- * padded so the caption sits on the same line whether zero, one or two words
- * are showing. Before this the caption started on row 1 and was pushed down a
- * row each time a word arrived, which read as the whole display jumping.
+ * Gloss modes always occupy the same rows:
+ *   3 word slots
+ *   1 blank gap
+ *   3 caption slots
+ * Empty slots are a single space so the glasses do not collapse them. A new
+ * word or caption line fills a reserved slot instead of shoving the rest of
+ * the page down.
  */
 export function composeHud(state: HudState, settings: LinkLingoSettings): string {
-  const wordRows = formatWords(state.words)
-  const caption = state.caption.trim()
+  const wordRows = formatWords(state.words).slice(-HUD_WORD_ROWS)
+  const captionLines = state.caption
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .slice(-HUD_CAPTION_LINES)
   const translation = state.translation.trim()
   const original = state.original.trim()
 
   if (settings.mode === "translation") {
     return joinRows([translation, original]) || IDLE_LINE
   }
-  if (settings.mode === "gloss") {
-    // Words-only used to send an empty wall whenever Gemini returned
-    // nothing, which is what the user saw: captions on the phone, black
-    // glasses. Fall back to the live caption so the HUD always has ink.
-    // Nothing sits below the words here, so no slot padding is needed.
-    return wordRows.join("\n") || caption || IDLE_LINE
-  }
-  if (wordRows.length === 0 && !caption) return IDLE_LINE
-  const slots = wordRowsFor(settings.mode)
-  const padded = [...wordRows, ...Array<string>(Math.max(0, slots - wordRows.length)).fill(EMPTY_ROW)]
-  return joinRows([...padded, caption])
+  if (wordRows.length === 0 && captionLines.length === 0) return IDLE_LINE
+
+  return [
+    ...padRows(wordRows, wordRowsFor(settings.mode)),
+    EMPTY_ROW,
+    ...padRows(captionLines, HUD_CAPTION_LINES),
+  ].join("\n")
+}
+
+function padRows(rows: string[], count: number): string[] {
+  return [...rows, ...Array<string>(Math.max(0, count - rows.length)).fill(EMPTY_ROW)]
 }
 
 function joinRows(rows: string[]): string {
