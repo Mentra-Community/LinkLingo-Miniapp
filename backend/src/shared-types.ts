@@ -54,6 +54,39 @@ export type TranscriptDisposition =
   | "translation_mode"
   | "heard"
 
+/** What the phone knows at the moment the user says "that was wrong". */
+export interface FeedbackRequest {
+  note: string
+  settings: {inputLanguage: string; outputLanguage: string; proficiency: number; mode: string}
+  recentUtterances: Array<{text: string; at: number; language?: string}>
+  shownWords: Array<{word: string; translation: string; isUpgrade?: boolean; at: number}>
+  recentWords: Array<{word: string; translation: string; isUpgrade?: boolean; at: number}>
+  caption: string
+  translation: string
+  original: string
+}
+
+export type FeedbackCause =
+  | "asr"
+  | "language_guard"
+  | "candidate_filter"
+  | "prompt"
+  | "model"
+  | "display"
+  | "no_problem"
+  | "unknown"
+
+export interface FeedbackAnalysis {
+  id: string
+  model: string
+  diagnosis: string
+  likelyCause: FeedbackCause
+  evidence: string[]
+  suggestedFix: string
+  suggestedPromptChange?: string
+  totalMs: number
+}
+
 export interface TranscriptRequest {
   text: string
   detectedLanguage?: string

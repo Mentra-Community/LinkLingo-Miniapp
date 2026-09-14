@@ -1,6 +1,6 @@
 import type {MiniappSession} from "@mentra/miniapp/background"
 
-import type {GlossedWord, LinkLingoProfiling, TranscriptDisposition} from "../shared/types"
+import type {FeedbackAnalysis, GlossedWord, LinkLingoProfiling, TranscriptDisposition} from "../shared/types"
 import {createLogger, diagnostics} from "./observability"
 
 const log = createLogger("api")
@@ -151,6 +151,47 @@ export function reportTranscript(
       diagnostics.increment("transcript.transport_error")
       log.debug("transcript report failed", {error: err as Error})
     })
+}
+
+export interface FeedbackBody {
+  note: string
+  settings: {inputLanguage: string; outputLanguage: string; proficiency: number; mode: string}
+  recentUtterances: Array<{text: string; at: number; language?: string}>
+  shownWords: GlossedWord[]
+  recentWords: GlossedWord[]
+  caption: string
+  translation: string
+  original: string
+}
+
+/** The analyst model thinks for real, so this call is measured in seconds, not the gloss path's sub-second. */
+export async function requestFeedback(
+  session: MiniappSession,
+  body: FeedbackBody,
+): Promise<BackendResult<FeedbackAnalysis>> {
+  const started = Date.now()
+  diagnostics.increment("feedback.requests")
+  try {
+    const res = await session.auth.fetch(url("/api/feedback"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    })
+    const durationMs = Date.now() - started
+    diagnostics.observe("feedback.roundTrip", durationMs)
+    if (!res.ok) {
+      const message = await describeFailure("feedback", res, durationMs)
+      return {ok: false, message}
+    }
+    const data = (await res.json()) as FeedbackAnalysis
+    diagnostics.increment("feedback.ok")
+    log.info("feedback analysed", {durationMs, cause: data.likelyCause, model: data.model})
+    return {ok: true, data}
+  } catch (err) {
+    diagnostics.increment("feedback.transport_error")
+    log.error("feedback transport failure", {url: BACKEND_URL, error: err as Error})
+    return {ok: false, message: "Cannot reach LinkLingo backend"}
+  }
 }
 
 export async function requestUpgrade(

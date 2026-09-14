@@ -10,7 +10,7 @@ import type {
   TranscriptDisposition,
 } from "../shared/types"
 import {inputLanguage, outputLanguage} from "../shared/types"
-import {reportTranscript} from "./backend"
+import {reportTranscript, requestFeedback} from "./backend"
 import {DisplayRenderer} from "./DisplayRenderer"
 import {GlossEngine} from "./GlossEngine"
 import {toLocale} from "./locales"
@@ -36,6 +36,7 @@ export class LinkLingoController {
   private profiling: LinkLingoProfiling | null = null
   private streamCleanup: UnsubscribeFn | null = null
   private diagnosticsTimer: ReturnType<typeof setInterval> | null = null
+  private wordExpiryTimer: ReturnType<typeof setTimeout> | null = null
   private uiOpen = false
   private readonly buffer = new TranscriptBuffer()
   private readonly display: DisplayRenderer
@@ -52,9 +53,7 @@ export class LinkLingoController {
         if (incoming.length > 0) {
           this.words = [...this.words, ...incoming].slice(-6)
         }
-        const shown = this.engine.currentWords(this.words, this.settings)
-        this.display.showWords(shown, this.settings)
-        this.ui.send("link:words", shown)
+        this.refreshWords()
       },
       onProfiling: (profiling) => {
         this.profiling = profiling
@@ -109,6 +108,30 @@ export class LinkLingoController {
   }
 
   /**
+   * Paints the words that are still live and arms a timer for the moment the
+   * oldest one ages out, so a row disappears on schedule even when no new
+   * speech arrives to trigger a repaint.
+   */
+  private refreshWords(): void {
+    const now = Date.now()
+    const shown = this.engine.currentWords(this.words, this.settings, now)
+    this.display.showWords(shown, this.settings)
+    this.ui.send("link:words", shown)
+
+    if (this.wordExpiryTimer) {
+      clearTimeout(this.wordExpiryTimer)
+      this.wordExpiryTimer = null
+    }
+    const expiry = this.engine.nextExpiry(this.words, this.settings, now)
+    if (expiry == null) return
+    this.wordExpiryTimer = setTimeout(() => {
+      this.wordExpiryTimer = null
+      diagnostics.increment("engine.words_expired")
+      this.refreshWords()
+    }, Math.max(50, expiry - now))
+  }
+
+  /**
    * A phone has no log tail, so the running counters are pushed to the WebView
    * on an interval while it is open.
    */
@@ -147,9 +170,14 @@ export class LinkLingoController {
     on("link:set-display-width", ({displayWidth}) => void this.patch({displayWidth}))
     on("link:set-word-breaking", ({wordBreaking}) => void this.patch({wordBreaking}))
     on("link:set-pinyin-display", ({pinyinDisplay}) => void this.patch({pinyinDisplay}))
+    on("link:feedback", ({requestId, note}) => void this.askAnalyst(requestId, note))
     on("link:clear", () => {
       log.info("hud cleared by user")
       diagnostics.increment("ui.clears")
+      if (this.wordExpiryTimer) {
+        clearTimeout(this.wordExpiryTimer)
+        this.wordExpiryTimer = null
+      }
       this.words = []
       this.caption = ""
       this.translation = ""
@@ -298,6 +326,38 @@ export class LinkLingoController {
     if (data.isFinal && (original || translated)) {
       this.recordTranscript(original || translated, data.sourceLanguage, "translation_mode")
     }
+  }
+
+  /**
+   * "Something looked wrong just now." Ships the user's note with everything
+   * the phone knows about the last half minute — utterances, the rows on the
+   * glasses, settings — to the backend, which adds its own tape and asks the
+   * analyst model for a diagnosis. The answer goes back to the WebView and is
+   * archived server-side for later review.
+   */
+  private async askAnalyst(requestId: string, note: string): Promise<void> {
+    diagnostics.increment("ui.feedback")
+    log.info("feedback submitted", {chars: note.trim().length})
+    const result = await requestFeedback(this.session, {
+      note,
+      settings: {
+        inputLanguage: inputLanguage(this.settings),
+        outputLanguage: outputLanguage(this.settings),
+        proficiency: this.settings.proficiency,
+        mode: this.settings.mode,
+      },
+      recentUtterances: this.buffer.list().map((u) => ({text: u.text, at: u.at, language: u.language})),
+      shownWords: this.engine.currentWords(this.words, this.settings),
+      recentWords: this.words,
+      caption: this.caption,
+      translation: this.translation,
+      original: this.original,
+    })
+    if (!result.ok) {
+      this.ui.send("link:feedback-result", {requestId, ok: false, error: result.message})
+      return
+    }
+    this.ui.send("link:feedback-result", {requestId, ok: true, analysis: result.data})
   }
 
   private recordTranscript(text: string, detectedLanguage: string | undefined, disposition: TranscriptDisposition): void {

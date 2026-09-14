@@ -3,6 +3,7 @@ import {useColorScheme, useSafeArea} from "@mentra/miniapp/ui"
 
 import type {Channels} from "../shared/channels"
 import type {
+  FeedbackAnalysis,
   LinkLingoDiagnostics,
   LinkLingoMode,
   LinkLingoSettings,
@@ -310,6 +311,8 @@ export function App() {
             ) : null}
           </section>
 
+          <AnalystCard />
+
           <section className="card">
             <button
               type="button"
@@ -330,6 +333,148 @@ export function App() {
         </div>
         <p className="app-version">LinkLingo {APP_VERSION}</p>
       </div>
+    </div>
+  )
+}
+
+const CAUSE_LABELS: Record<FeedbackAnalysis["likelyCause"], string> = {
+  asr: "Speech recognition",
+  language_guard: "Language guard",
+  candidate_filter: "Word filter",
+  prompt: "Gloss prompt",
+  model: "Gloss model",
+  display: "Glasses display",
+  no_problem: "Working as intended",
+  unknown: "Unclear",
+}
+
+const ANALYST_PROMPTS = [
+  "The last translation was wrong",
+  "It should have glossed a word it skipped",
+  "It glossed a word I already know",
+  "Nothing showed up for a while",
+]
+
+/**
+ * Real-time bug report. The user types what looked wrong; the background
+ * bundles the last half minute of speech and rows, the server adds its tape,
+ * and a reasoning model comes back with a diagnosis and a fix. Every report is
+ * archived server-side (`bun run review -- --feedback`).
+ */
+function AnalystCard() {
+  const [open, setOpen] = useState(false)
+  const [note, setNote] = useState("")
+  const [pending, setPending] = useState<string | null>(null)
+  const [result, setResult] = useState<{analysis?: FeedbackAnalysis; error?: string} | null>(null)
+  const [startedAt, setStartedAt] = useState(0)
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    return mentra.on("link:feedback-result", (payload) => {
+      setPending((current) => {
+        if (current !== payload.requestId) return current
+        setResult(payload.ok ? {analysis: payload.analysis} : {error: payload.error ?? "Analysis failed"})
+        return null
+      })
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!pending) return
+    const timer = setInterval(() => setElapsed(Math.round((Date.now() - startedAt) / 1000)), 500)
+    return () => clearInterval(timer)
+  }, [pending, startedAt])
+
+  const submit = (text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed || pending) return
+    const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+    setResult(null)
+    setElapsed(0)
+    setStartedAt(Date.now())
+    setPending(requestId)
+    setNote(trimmed)
+    mentra.send("link:feedback", {requestId, note: trimmed})
+  }
+
+  return (
+    <section className="card">
+      <button type="button" className="disclosure" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <h2 className="card-title">Ask the analyst</h2>
+        <span className={`chevron${open ? " open" : ""}`}>›</span>
+      </button>
+      {open ? (
+        <div className="analyst">
+          <p className="hint analyst-intro">
+            Saw something wrong on the glasses? Say what, right away. A smarter model gets the last few minutes
+            of speech, what was shown, and the live prompt, and tells you which stage failed and how to fix it.
+          </p>
+          <div className="chips">
+            {ANALYST_PROMPTS.map((p) => (
+              <button key={p} type="button" className="chip" disabled={pending !== null} onClick={() => submit(p)}>
+                {p}
+              </button>
+            ))}
+          </div>
+          <textarea
+            className="analyst-input"
+            rows={3}
+            placeholder="e.g. 博物馆 was glossed as “museum” but the speaker said 博物学…"
+            value={note}
+            disabled={pending !== null}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <button
+            type="button"
+            className="primary"
+            disabled={pending !== null || note.trim().length === 0}
+            onClick={() => submit(note)}>
+            {pending ? `Analysing… ${elapsed}s` : "Ask the analyst"}
+          </button>
+          {result?.error ? (
+            <div className="diag-error">
+              <strong>Analysis failed</strong>
+              <span>{result.error}</span>
+            </div>
+          ) : null}
+          {result?.analysis ? <AnalysisView analysis={result.analysis} /> : null}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function AnalysisView({analysis}: {analysis: FeedbackAnalysis}) {
+  const good = analysis.likelyCause === "no_problem"
+  return (
+    <div className="analysis">
+      <div className="analysis-head">
+        <span className={`pill${good ? " pill-good" : ""}`}>{CAUSE_LABELS[analysis.likelyCause]}</span>
+        <span className="meta">
+          {analysis.model} · {(analysis.totalMs / 1000).toFixed(1)}s
+        </span>
+      </div>
+      <p className="analysis-text">{analysis.diagnosis}</p>
+      {analysis.evidence.length > 0 ? (
+        <ul className="analysis-evidence">
+          {analysis.evidence.map((e, i) => (
+            <li key={i}>{e}</li>
+          ))}
+        </ul>
+      ) : null}
+      {analysis.suggestedFix ? (
+        <div className="analysis-block">
+          <strong>Fix</strong>
+          <span>{analysis.suggestedFix}</span>
+        </div>
+      ) : null}
+      {analysis.suggestedPromptChange ? (
+        <div className="analysis-block">
+          <strong>Prompt change</strong>
+          <code>{analysis.suggestedPromptChange}</code>
+        </div>
+      ) : null}
+      <p className="meta">Saved for review · {analysis.id}</p>
     </div>
   )
 }

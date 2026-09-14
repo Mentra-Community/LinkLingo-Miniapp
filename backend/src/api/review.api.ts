@@ -2,6 +2,7 @@ import {Hono} from "hono"
 
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
+import {feedbackLog, formatFeedbackEntry, type FeedbackQuery} from "../services/feedback-log"
 import {formatReviewEntry, reviewLog, type ReviewOperation, type ReviewQuery} from "../services/review-log"
 import {formatTranscriptEntry, transcriptLog, type TranscriptQuery} from "../services/transcript-log"
 import type {TranscriptDisposition} from "../shared-types"
@@ -88,7 +89,23 @@ reviewApi.get("/transcripts", (c) => {
   return c.json({count: entries.length, entries})
 })
 
-reviewApi.get("/stats", (c) => c.json({review: reviewLog.stats(), transcripts: transcriptLog.stats()}))
+reviewApi.get("/feedback", (c) => {
+  const query: FeedbackQuery = {
+    since: parseTime(c.req.query("since")),
+    until: parseTime(c.req.query("until")),
+    user: c.req.query("user") || undefined,
+    limit: c.req.query("limit") ? Number(c.req.query("limit")) : undefined,
+  }
+  const entries = feedbackLog.list(query)
+  if (c.req.query("format") === "text") {
+    return c.text(entries.map(formatFeedbackEntry).join("\n\n") + (entries.length ? "\n" : ""))
+  }
+  return c.json({count: entries.length, entries})
+})
+
+reviewApi.get("/stats", (c) =>
+  c.json({review: reviewLog.stats(), transcripts: transcriptLog.stats(), feedback: feedbackLog.stats()}),
+)
 
 function constantTimeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false

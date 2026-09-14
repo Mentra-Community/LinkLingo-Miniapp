@@ -115,6 +115,22 @@ export function outputLanguage(settings: LinkLingoSettings): string {
   return settings.swapDirection ? settings.sourceLanguage : settings.targetLanguage
 }
 
+/** What the analyst model concluded about a problem the user flagged in real time. */
+export interface FeedbackAnalysis {
+  id: string
+  model: string
+  /** One paragraph: what went wrong, in plain language. */
+  diagnosis: string
+  likelyCause: "asr" | "language_guard" | "candidate_filter" | "prompt" | "model" | "display" | "no_problem" | "unknown"
+  /** Concrete observations from the tape that support the diagnosis. */
+  evidence: string[]
+  /** What to change in the app to stop it recurring. */
+  suggestedFix: string
+  /** A drop-in edit to the gloss prompt, when the cause is the prompt. */
+  suggestedPromptChange?: string
+  totalMs: number
+}
+
 /** Why a final utterance did or did not go to the gloss backend. */
 export type TranscriptDisposition =
   | "queued_gloss"

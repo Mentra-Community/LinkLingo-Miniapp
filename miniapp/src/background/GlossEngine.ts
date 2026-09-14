@@ -14,6 +14,12 @@ const UPGRADE_COOLDOWN_MS = 8000
 const WORD_DEDUP_MS = 20_000
 const UPGRADE_DRAIN_MS = 5000
 const MIN_FINAL_CHARS = 12
+/**
+ * How long a glossed word stays on the HUD. Rows used to live until 40 s of
+ * total silence, and every caption reset that clock, so during continuous
+ * speech a gloss from minutes ago sat there looking stuck.
+ */
+export const WORD_TTL_MS = 25_000
 
 export interface GlossEngineCallbacks {
   onWords(words: GlossedWord[]): void
@@ -67,12 +73,21 @@ export class GlossEngine {
     return isFinal ? disposition : null
   }
 
-  currentWords(glossed: GlossedWord[], settings: LinkLingoSettings): GlossedWord[] {
+  currentWords(glossed: GlossedWord[], settings: LinkLingoSettings, now = Date.now()): GlossedWord[] {
     const maxGloss = wordRowsFor(settings.mode)
-    const glossRows = glossed.slice(-maxGloss)
-    if (!settings.wordUpgrades || !this.shownUpgrade) return glossRows
+    const live = glossed.filter((w) => now - w.at <= WORD_TTL_MS)
+    const glossRows = live.slice(-maxGloss)
+    const upgrade = this.shownUpgrade && now - this.shownUpgrade.at <= WORD_TTL_MS ? this.shownUpgrade : null
+    if (!settings.wordUpgrades || !upgrade) return glossRows
     const room = Math.max(0, maxGloss - 1)
-    return [...glossRows.slice(-room), this.shownUpgrade]
+    return [...glossRows.slice(-room), upgrade]
+  }
+
+  /** When the oldest visible word will age out, so the HUD can repaint then. Null when nothing is showing. */
+  nextExpiry(glossed: GlossedWord[], settings: LinkLingoSettings, now = Date.now()): number | null {
+    const shown = this.currentWords(glossed, settings, now)
+    if (shown.length === 0) return null
+    return Math.min(...shown.map((w) => w.at)) + WORD_TTL_MS
   }
 
   reset(): void {

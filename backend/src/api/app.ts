@@ -4,9 +4,10 @@ import {cors} from "hono/cors"
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
 import {dictionaryDiagnostics} from "../services/frequency"
-import {apiKeyFingerprint, resolveApiKeySource} from "../services/gemini"
+import {apiKeyFingerprint, resolveAnalystModel, resolveApiKeySource} from "../services/gemini"
 import {glossService} from "../services/gloss.service"
 import {bundleApi, hostedBundleStatus} from "./bundle.api"
+import {feedbackApi} from "./feedback.api"
 import {glossApi} from "./gloss.api"
 import {requestObservability} from "./observability"
 import {reviewApi} from "./review.api"
@@ -45,6 +46,7 @@ export function createApp(): Hono {
       service: "linklingo-miniapp-backend",
       package: process.env.PACKAGE_NAME ?? "com.mentra.link",
       model: glossService.model,
+      analystModel: resolveAnalystModel(),
       llmKeySource: resolveApiKeySource() ?? null,
       llmKeyFingerprint: apiKeyFingerprint() ?? null,
       uptimeSeconds: metrics.snapshot().uptimeSeconds,
@@ -72,6 +74,8 @@ export function createApp(): Hono {
   app.route("/api/gloss", glossApi)
   app.route("/api/upgrade", upgradeApi)
   app.route("/api/transcript", transcriptApi)
+  // "Ask the analyst": user-flagged problem + last 10 min of tape → smarter model.
+  app.route("/api/feedback", feedbackApi)
   // Last ~24h of model input/output for prompt tuning. Only mounted in effect
   // when LINKLINGO_REVIEW_TOKEN is set; see `bun run review`.
   app.route("/api/review", reviewApi)

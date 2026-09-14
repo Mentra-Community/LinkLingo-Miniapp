@@ -16,10 +16,12 @@
  *   bun run review -- --url http://localhost:3240 --json
  *   bun run review:doppler -- --transcripts          # last 24h of heard speech
  *   bun run review:doppler -- --transcripts --save backend/data/transcripts.jsonl
+ *   bun run review:doppler -- --feedback             # problems flagged from the WebView + analyst verdicts
  */
 
 import {appendFileSync, existsSync, readFileSync} from "node:fs"
 
+import {formatFeedbackEntry, type FeedbackEntry} from "../src/services/feedback-log"
 import {formatReviewEntry, type ReviewEntry} from "../src/services/review-log"
 import {formatTranscriptEntry, type TranscriptEntry} from "../src/services/transcript-log"
 
@@ -60,6 +62,27 @@ const file = arg("file")
 const save = arg("save")
 const limit = arg("limit", "2000")!
 const wantTranscripts = flag("transcripts")
+const wantFeedback = flag("feedback")
+
+async function fetchFromReview<T>(path: string, query: URLSearchParams): Promise<T[]> {
+  const token = process.env.LINKLINGO_REVIEW_TOKEN
+  if (!token) {
+    console.error("LINKLINGO_REVIEW_TOKEN is required (same value the backend runs with), or pass --file")
+    process.exit(1)
+  }
+  const response = await fetch(`${url}/api/review/${path}?${query}`, {
+    headers: {Authorization: `Bearer ${token}`},
+  })
+  if (response.status === 404) {
+    console.error(`${url} has no review log: LINKLINGO_REVIEW_TOKEN is not set on the backend, or it predates this feature`)
+    process.exit(1)
+  }
+  if (!response.ok) {
+    console.error(`${url} answered ${response.status}: ${(await response.text()).slice(0, 300)}`)
+    process.exit(1)
+  }
+  return ((await response.json()) as {entries: T[]}).entries
+}
 
 async function fetchEntries(): Promise<ReviewEntry[]> {
   const token = process.env.LINKLINGO_REVIEW_TOKEN
@@ -119,6 +142,53 @@ function archive(path: string, entries: ReviewEntry[]): number {
   const fresh = entries.filter((e) => !known.has(e.id))
   if (fresh.length > 0) appendFileSync(path, fresh.map((e) => JSON.stringify(e)).join("\n") + "\n")
   return fresh.length
+}
+
+if (wantFeedback) {
+  let reports: FeedbackEntry[]
+  if (file) {
+    const cutoff = parseTime(since) ?? 0
+    reports = readArchive(file).filter((e) => e.at >= cutoff) as unknown as FeedbackEntry[]
+  } else {
+    reports = await fetchFromReview<FeedbackEntry>("feedback", new URLSearchParams({since, limit}))
+    if (save) {
+      const added = archive(save, reports as unknown as ReviewEntry[])
+      console.error(`archived ${added} new feedback reports to ${save}`)
+    }
+  }
+  reports.sort((a, b) => a.at - b.at)
+  if (flag("json")) {
+    console.log(JSON.stringify(reports, null, 2))
+    process.exit(0)
+  }
+  for (const entry of reports) {
+    console.log(formatFeedbackEntry(entry))
+    console.log()
+  }
+  const source = file ? `archive ${file}` : url
+  if (reports.length === 0) {
+    console.log(`no feedback in ${source} since ${since}`)
+    process.exit(0)
+  }
+  const causes = reports.reduce<Record<string, number>>((acc, e) => {
+    acc[e.analysis.likelyCause] = (acc[e.analysis.likelyCause] ?? 0) + 1
+    return acc
+  }, {})
+  console.log("=".repeat(72))
+  console.log(`${reports.length} feedback reports from ${source} since ${since}`)
+  console.log(
+    `causes:      ${Object.entries(causes)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `${k}=${n}`)
+      .join("  ")}`,
+  )
+  const promptChanges = reports.filter((e) => e.analysis.suggestedPromptChange)
+  if (promptChanges.length > 0) {
+    console.log()
+    console.log(`suggested prompt changes (${promptChanges.length}):`)
+    for (const entry of promptChanges) console.log(`  - ${entry.analysis.suggestedPromptChange}`)
+  }
+  process.exit(0)
 }
 
 if (wantTranscripts) {

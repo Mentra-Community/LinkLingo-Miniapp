@@ -1,5 +1,6 @@
 import type {
   BackendStatus,
+  FeedbackAnalysis,
   GlossedWord,
   LinkLingoDiagnostics,
   LinkLingoMode,
@@ -30,6 +31,9 @@ export interface Channels {
   "link:set-word-breaking": {wordBreaking: boolean}
   "link:set-pinyin-display": {pinyinDisplay: boolean}
   "link:clear": {}
+  /** User flags a problem they just saw; background gathers context and asks the analyst. */
+  "link:feedback": {requestId: string; note: string}
+  "link:feedback-result": {requestId: string; ok: boolean; analysis?: FeedbackAnalysis; error?: string}
 }
 
 declare global {

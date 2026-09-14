@@ -12,7 +12,7 @@ const log = createLogger("gloss")
 /** Why a model-proposed word did not make it to the glasses. */
 type RejectReason = "empty" | "echo" | "untranslated" | "recent" | "not_candidate" | "known"
 
-const GLOSS_SYSTEM = `You gloss unfamiliar words for a language learner listening to live speech through smart glasses.
+export const GLOSS_SYSTEM = `You gloss unfamiliar words for a language learner listening to live speech through smart glasses.
 
 The learner already knows roughly the KNOWN most common words of the input language. Each candidate is written as word:rank, where rank is its frequency rank in that language (1 = most common). Every candidate is already rarer than the learner's vocabulary, so the higher the rank, the less likely they know it.
 

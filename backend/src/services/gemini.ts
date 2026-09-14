@@ -25,6 +25,19 @@ export interface GeminiCallOptions {
   responseSchema: Record<string, unknown>
   /** Names the caller so logs and metrics separate gloss traffic from upgrade traffic. */
   operation: string
+  /** Overrides the live-path model; the analyst uses a slower, smarter one. */
+  model?: string
+  /** Reasoning budget. The live path stays "minimal"; the analyst gets to think. */
+  thinkingLevel?: "minimal" | "low" | "medium" | "high"
+}
+
+/**
+ * The model behind "ask the analyst": user-triggered, seconds are fine,
+ * judgment is the point. 3.1 Pro is the strongest reasoning model this key
+ * can call (only the preview id is served; the bare `gemini-3.1-pro` 404s).
+ */
+export function resolveAnalystModel(): string {
+  return process.env.GEMINI_ANALYST_MODEL ?? "gemini-3.1-pro-preview"
 }
 
 export interface GeminiUsage {
@@ -102,7 +115,7 @@ interface GeminiResponseBody {
 
 export async function generateJson(opts: GeminiCallOptions): Promise<GeminiCallResult> {
   const apiKey = resolveApiKey()
-  const model = resolveModel()
+  const model = opts.model ?? resolveModel()
   const call = log.child({op: opts.operation, model})
 
   if (!apiKey) {
@@ -135,9 +148,9 @@ export async function generateJson(opts: GeminiCallOptions): Promise<GeminiCallR
             maxOutputTokens: opts.maxOutputTokens,
             responseMimeType: "application/json",
             responseSchema: opts.responseSchema,
-            // Closest to thinking-off. 3.8 Flash rejects this and floors at
-            // "low"; Flash-Lite accepts "minimal" and is the latency chip.
-            thinkingConfig: {thinkingLevel: "minimal"},
+            // Default is closest to thinking-off. 3.8 Flash rejects this and
+            // floors at "low"; Flash-Lite accepts "minimal" and is the latency chip.
+            thinkingConfig: {thinkingLevel: opts.thinkingLevel ?? "minimal"},
           },
         }),
       },

@@ -122,8 +122,27 @@ bun run review:doppler -- --transcripts
 bun run review:doppler -- --transcripts --save backend/data/transcripts.jsonl
 ```
 
-The raw endpoints are `GET /api/review/entries` (model I/O) and
-`GET /api/review/transcripts` (heard speech), both behind
+### Ask the analyst (real-time)
+
+When something looks wrong on the glasses, open the WebView → **Ask the
+analyst**, tap a preset or type what you saw. The phone ships the last ~30 s of
+speech and the rows on the HUD; the backend adds the last 10 minutes of that
+user's transcript tape and gloss calls plus the live gloss prompt, and asks
+`gemini-3.1-pro-preview` (`GEMINI_ANALYST_MODEL`, thinking level
+`GEMINI_ANALYST_THINKING`, default `medium`, ~8–10 s) which pipeline stage
+failed — ASR, language guard, candidate filter, prompt, model, display, or
+nothing — with evidence quoted from the tape, a concrete fix, and a drop-in
+prompt edit when the prompt is at fault. Every report and verdict is archived
+on the same 24h tape:
+
+```
+bun run review:doppler -- --feedback
+bun run review:doppler -- --feedback --save backend/data/feedback.jsonl
+```
+
+The raw endpoints are `GET /api/review/entries` (model I/O),
+`GET /api/review/transcripts` (heard speech) and `GET /api/review/feedback`
+(flagged problems + analyst verdicts), all behind
 `Authorization: Bearer $LINKLINGO_REVIEW_TOKEN`. They only exist when that
 token is set; it lives in Doppler `linklingo/dev`, which is why the
 `:doppler` script needs no setup.
