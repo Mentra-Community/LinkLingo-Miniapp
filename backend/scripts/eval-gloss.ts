@@ -7,8 +7,8 @@
  * numbers move with the model.
  *
  * Usage:
- *   GEMINI_API_KEY=... bun backend/scripts/eval-gloss.ts
- *   GEMINI_API_KEY=... bun backend/scripts/eval-gloss.ts --levels 10,50,90 --repeat 2
+ *   OPENROUTER_API_KEY=... bun backend/scripts/eval-gloss.ts
+ *   OPENROUTER_API_KEY=... bun backend/scripts/eval-gloss.ts --levels 10,50,90 --repeat 2
  */
 
 import {readFileSync} from "fs"
@@ -55,7 +55,7 @@ const repeat = Number(arg("repeat", "1"))
 const concurrency = Number(arg("concurrency", "3"))
 
 if (!resolveApiKey()) {
-  console.error("GEMINI_API_KEY is required for the live eval")
+  console.error("OPENROUTER_API_KEY is required for the live eval")
   process.exit(1)
 }
 
