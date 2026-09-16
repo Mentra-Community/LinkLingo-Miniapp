@@ -150,6 +150,19 @@ describe("single-character hanzi", () => {
       expect(words.filter((w) => w.length === 1)).toEqual([])
     }
   })
+
+  test("does not gloss a leftover character from a split two-character word", () => {
+    // Live tape: jieba cut 华丘 into 华+丘 and the HUD showed 丘 → "mound".
+    const words = candidateWords(
+      "然后最近也在跟华丘啊有一些看，华丘加之后可能到时候一个电路板就搞定了。",
+      "zh",
+      [],
+      knownRankFor(16),
+    ).map((c) => c.word)
+    expect(words).not.toContain("丘")
+    expect(words).not.toContain("华")
+    expect(words.filter((w) => w.length === 1)).toEqual([])
+  })
 })
 
 describe("lookupRank", () => {

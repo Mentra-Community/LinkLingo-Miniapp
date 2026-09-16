@@ -260,9 +260,49 @@ function loadDict(lang: string): LangDict | null {
 
 function tokenize(text: string, lang: string): string[] {
   if (lang === "zh_cn" || CJK.test(text)) {
-    return jieba.cut(text).map((w) => w.trim()).filter(Boolean)
+    return stitchSplitCjkSingles(jieba.cut(text).map((w) => w.trim()).filter(Boolean))
   }
   return text.split(/\s+/).map((w) => w.trim()).filter(Boolean)
+}
+
+/**
+ * Jieba splits names and OOV compounds into leftover hanzi (`华丘` → `华`+`丘`).
+ * Each piece then looks like rare vocabulary (`丘` rank 17626 → "mound") even
+ * though the speaker said a two-character word. Glue adjacent rare singles
+ * back together so the leftover character cannot be glossed on its own.
+ * Common singles (`请`+`给`, `我`+`盐`) are left alone — `盐` is real vocab.
+ */
+function stitchSplitCjkSingles(tokens: string[]): string[] {
+  const out: string[] = []
+  for (let i = 0; i < tokens.length; i++) {
+    const a = tokens[i]
+    const b = tokens[i + 1]
+    if (b && shouldStitchCjkPair(a, b)) {
+      out.push(a + b)
+      i += 1
+      continue
+    }
+    out.push(a)
+  }
+  return out
+}
+
+function shouldStitchCjkPair(a: string, b: string): boolean {
+  if (!CJK_ONLY.test(a) || !CJK_ONLY.test(b)) return false
+  if (a.length !== 1 || b.length !== 1) return false
+  if (STOP_WORDS.has(a) || STOP_WORDS.has(b)) return false
+  const dict = loadDict("zh_cn")
+  if (!dict) return true
+  const pair = dict.ranks.get(a + b)
+  // A listed two-character word that jieba broke apart must be put back.
+  if (pair != null) return true
+  return isRareOrUnknownSingle(a, dict) && isRareOrUnknownSingle(b, dict)
+}
+
+function isRareOrUnknownSingle(token: string, dict: LangDict): boolean {
+  const rank = dict.ranks.get(token)
+  if (rank == null) return true
+  return rank >= SINGLE_CHAR_MIN_CANDIDATE_RANK
 }
 
 function dictForToken(token: string, lang: string): LangDict | null {
