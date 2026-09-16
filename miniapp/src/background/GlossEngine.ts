@@ -13,7 +13,15 @@ const GLOSS_COOLDOWN_MS = 2000
 const UPGRADE_COOLDOWN_MS = 8000
 const WORD_DEDUP_MS = 20_000
 const UPGRADE_DRAIN_MS = 5000
-const MIN_FINAL_CHARS = 12
+/**
+ * A single ASR final is often a 2–6 character Chinese chunk ("我们去吃饭",
+ * "然后那个功能"). The old 12-character floor treated those as noise, so most
+ * speech never reached the model even though the buffer already held a
+ * full phrase. 4 characters still drops 嗯/对/好/啊.
+ */
+const MIN_UTTERANCE_CHARS = 4
+/** If this chunk is a filler, still gloss once the last 30s of speech is a phrase. */
+const MIN_CONTEXT_CHARS = 8
 /**
  * How long a glossed word stays on the HUD. Rows used to live until 40 s of
  * total silence, and every caption reset that clock, so during continuous
@@ -62,9 +70,11 @@ export class GlossEngine {
       }
       return null
     }
-    const shouldGloss =
-      (isFinal && text.trim().length >= MIN_FINAL_CHARS) ||
-      (!isFinal && hasSentenceEnd(text) && stripIncompleteLastWord(text).length >= MIN_FINAL_CHARS)
+    const shouldGloss = shouldQueueGloss({
+      text,
+      isFinal,
+      context: this.buffer.context(),
+    })
     let disposition: TranscriptDisposition | null = isFinal ? "skipped_short" : null
     if (shouldGloss) disposition = this.queueGloss(settings, now)
     if (settings.wordUpgrades && now - this.lastUpgradeAt >= UPGRADE_COOLDOWN_MS) {
@@ -275,4 +285,18 @@ export class GlossEngine {
 
 function bare(word: string): string {
   return word.toLowerCase().replace(/\s*\([^)]*\)/g, "").trim()
+}
+
+/**
+ * Whether this transcript event should hit the gloss backend. Decides on the
+ * current chunk *or* the accumulated buffer, so a stream of short Chinese
+ * finals still produces translations.
+ */
+export function shouldQueueGloss(opts: {text: string; isFinal: boolean; context: string}): boolean {
+  const current = opts.text.trim()
+  if (!current) return false
+  if (opts.isFinal) {
+    return current.length >= MIN_UTTERANCE_CHARS || opts.context.trim().length >= MIN_CONTEXT_CHARS
+  }
+  return hasSentenceEnd(current) && stripIncompleteLastWord(current).length >= MIN_UTTERANCE_CHARS
 }
