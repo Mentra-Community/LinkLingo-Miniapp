@@ -48,7 +48,7 @@ Prereqs: [Bun](https://bun.sh).
 
 ```bash
 bun install
-cp .env.example .env   # add GEMINI_API_KEY for live glossing
+cp .env.example .env   # add OPENROUTER_API_KEY for live glossing
 bun run dev:local      # backend :3240 + miniapp QR
 ```
 
@@ -129,7 +129,7 @@ what you just saw — "why did it gloss 餐厅", "the last one was wrong", a gen
 question — and hit Send. The phone ships the last few translations, the rows
 on the HUD and the last ~30 s of speech; the backend adds the last 10 minutes
 of that user's transcript tape and gloss calls plus the live gloss prompt, and
-`gemini-3.1-pro-preview` (`GEMINI_ANALYST_MODEL`; thinking level
+`google/gemini-3.1-pro-preview` (`OPENROUTER_ANALYST_MODEL`; thinking level
 `GEMINI_ANALYST_THINKING`, default `medium`, ~8–10 s) answers in plain text,
 grounded in the tape. Every exchange is archived on the same 24h tape:
 
