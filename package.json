@@ -2,6 +2,7 @@
   "name": "linklingo-miniapp",
   "private": true,
   "version": "1.0.0",
+  "license": "Apache-2.0",
   "description": "LinkLingo as a local MentraOS miniapp. Live rare-word glossing, captions, and translation on smart glasses, backed by a slim Gemini backend.",
   "workspaces": [
     "vendor/*"
