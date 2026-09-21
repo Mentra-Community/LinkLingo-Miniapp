@@ -30,6 +30,8 @@ export interface Channels {
   "link:set-display-width": {displayWidth: 0 | 1 | 2}
   "link:set-word-breaking": {wordBreaking: boolean}
   "link:set-pinyin-display": {pinyinDisplay: boolean}
+  "link:set-interim-trigger": {interimTrigger: boolean}
+  "link:set-fast-cooldown": {fastCooldown: boolean}
   "link:clear": {}
   /** User flags a problem they just saw; background gathers context and asks the analyst. */
   "link:feedback": {requestId: string; note: string}

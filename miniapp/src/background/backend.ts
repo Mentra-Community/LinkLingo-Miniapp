@@ -30,6 +30,24 @@ export interface UpgradeApiResult {
 
 export type BackendResult<T> = {ok: true; data: T} | {ok: false; message: string}
 
+/** Beyond this the TLS connection is likely gone and worth re-opening early. */
+const PRECONNECT_IDLE_MS = 20_000
+
+/**
+ * Opens the connection while the user is still speaking, so the gloss that
+ * follows pays only the round trip and not the handshake. Unauthenticated and
+ * bodyless on purpose: it must never be slower than the thing it is hiding.
+ */
+export function preconnect(force = false): void {
+  const idle = glossTelemetry.msSinceBackendRequest()
+  if (!force && idle != null && idle < PRECONNECT_IDLE_MS) return
+  glossTelemetry.noteBackendRequest()
+  diagnostics.increment("preconnect.attempts")
+  void fetch(url("/ping"), {method: "GET"})
+    .then(() => diagnostics.increment("preconnect.ok"))
+    .catch(() => diagnostics.increment("preconnect.failed"))
+}
+
 function url(path: string): string {
   return `${BACKEND_URL.replace(/\/$/, "")}${path}`
 }
@@ -151,6 +169,8 @@ export function reportTranscript(
     utteranceId?: string
     /** Shadow-interim results for utterances whose final has now landed. */
     shadowInterim?: ShadowInterimObservation[]
+    /** Realised lead when this utterance was glossed from an interim. */
+    asrLeadMs?: number
   },
 ): void {
   const started = Date.now()

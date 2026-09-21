@@ -4,13 +4,14 @@ import {utteranceInInputLanguage} from "../shared/script"
 import type {
   GlossedWord,
   GlossQueueReason,
+  GlossTrigger,
   LinkLingoProfiling,
   LinkLingoSettings,
   ShadowInterimObservation,
   TranscriptDisposition,
 } from "../shared/types"
 import {inputLanguage, outputLanguage, wordRowsFor} from "../shared/types"
-import {requestGloss, requestUpgrade} from "./backend"
+import {preconnect, requestGloss, requestUpgrade} from "./backend"
 import {glossTelemetry} from "./glossTelemetry"
 import {createLogger, diagnostics} from "./observability"
 import {ShadowInterimDetector} from "./shadowInterim"
@@ -18,7 +19,24 @@ import {hasSentenceEnd, stripIncompleteLastWord, type TranscriptBuffer} from "./
 
 const log = createLogger("engine")
 
-const GLOSS_COOLDOWN_MS = 2000
+/**
+ * Minimum spacing between glosses. The 2s floor predates any measurement of
+ * what it cost: normal speech produces finals faster than that, so the second
+ * utterance of a pair was routinely dropped rather than delayed. 600ms still
+ * prevents the empty-gloss storms the cooldown was added for.
+ */
+const GLOSS_COOLDOWN_MS = 600
+/** The pre-1.0.17 floor, kept so the change can be A/B'd against the baseline. */
+const LEGACY_GLOSS_COOLDOWN_MS = 2000
+/**
+ * Enough genuinely new speech makes the cooldown counterproductive: the words
+ * worth glossing are in the part the model has not seen.
+ */
+const COOLDOWN_BYPASS_NEW_CHARS = 8
+/** An interim this quiet has stopped being revised and is worth glossing early. */
+const INTERIM_STABLE_MS = 300
+/** Or it has already grown this much past the last thing the backend saw. */
+const INTERIM_GROWTH_CHARS = 6
 const UPGRADE_COOLDOWN_MS = 8000
 const WORD_DEDUP_MS = 20_000
 const UPGRADE_DRAIN_MS = 5000
@@ -51,6 +69,7 @@ interface GlossAttempt {
   /** Before cooldown, coalescing or in-flight blocking — the number Phase 1 must shrink. */
   eligibleAt: number
   utteranceId?: string
+  trigger: GlossTrigger
 }
 
 export class GlossEngine {
@@ -62,6 +81,11 @@ export class GlossEngine {
   private pending: GlossAttempt | null = null
   private pendingTimer: ReturnType<typeof setTimeout> | null = null
   private readonly shadow = new ShadowInterimDetector()
+  private interimTimer: ReturnType<typeof setTimeout> | null = null
+  private interimText = ""
+  /** The interim-triggered gloss awaiting its final, so the lead can be measured. */
+  private interimGlossed: {utteranceId: string; at: number} | null = null
+  private pendingAsrLeadMs: number | null = null
   private recent = new Map<string, number>()
   private recentUpgrades: string[] = []
   private upgradeQueue: GlossedWord[] = []
@@ -93,11 +117,29 @@ export class GlossEngine {
       }
       return null
     }
-    // Measurement only: works out when the Phase 1 interim rules would have
-    // fired, without sending anything or touching the HUD.
+    // Keeps measuring what the interim rules would have done even once they
+    // are live, so the shipped trigger can be checked against its prediction.
     if (utteranceId) {
       this.shadow.observe({utteranceId, text, isFinal, lastGlossContext: this.lastGlossContext, now})
     }
+
+    if (isFinal) {
+      this.clearInterimTimer()
+      this.interimText = ""
+      // The lead is only knowable once the final lands, so it is reported on
+      // the transcript for this utterance rather than with the gloss itself.
+      if (this.interimGlossed && this.interimGlossed.utteranceId === utteranceId) {
+        this.pendingAsrLeadMs = Math.max(0, now - this.interimGlossed.at)
+        diagnostics.observe("engine.asrLead", this.pendingAsrLeadMs)
+        this.interimGlossed = null
+      }
+    } else {
+      // The user is mid-sentence: a good moment to pay for the handshake the
+      // imminent gloss would otherwise pay for itself.
+      preconnect()
+      if (settings.interimTrigger) this.considerInterim(text, settings, utteranceId, now)
+    }
+
     const shouldGloss = shouldQueueGloss({
       text,
       isFinal,
@@ -107,11 +149,75 @@ export class GlossEngine {
     // `now` is the instant this transcript became eligible, captured before
     // queueGloss applies any cooldown or coalescing, so queueWaitMs measures
     // exactly the waiting Phase 1 sets out to remove.
-    if (shouldGloss) disposition = this.queueGloss(settings, now, utteranceId)
+    if (shouldGloss) disposition = this.queueGloss(settings, now, utteranceId, "final")
     if (settings.wordUpgrades && now - this.lastUpgradeAt >= UPGRADE_COOLDOWN_MS) {
       void this.runUpgrade(settings)
     }
     return isFinal ? disposition : null
+  }
+
+  /**
+   * Glosses a still-running utterance once it looks settled, which is the
+   * whole Phase 1 saving: the ASR final arrives hundreds of milliseconds after
+   * the words worth glossing are already present.
+   *
+   * The final for the same utterance is not a second call — it hits the
+   * existing duplicate check on `lastGlossContext`, and any word that did make
+   * it through is held off by the 20s `recent` map.
+   */
+  private considerInterim(
+    text: string,
+    settings: LinkLingoSettings,
+    utteranceId: string | undefined,
+    now: number,
+  ): void {
+    const trimmed = text.trim()
+    if (trimmed.length < MIN_UTTERANCE_CHARS) return
+    // Unchanged text means the settle timer armed earlier is still the right one.
+    if (trimmed === this.interimText) return
+    this.interimText = trimmed
+
+    const grown = trimmed.length - this.lastGlossContext.trim().length
+    if (grown >= INTERIM_GROWTH_CHARS) {
+      this.clearInterimTimer()
+      this.triggerInterimGloss(settings, utteranceId, now)
+      return
+    }
+
+    // Still being revised: restart the clock rather than glossing a fragment
+    // the recognizer is about to replace.
+    this.clearInterimTimer()
+    this.interimTimer = setTimeout(() => {
+      this.interimTimer = null
+      this.triggerInterimGloss(settings, utteranceId, Date.now())
+    }, INTERIM_STABLE_MS)
+  }
+
+  private triggerInterimGloss(
+    settings: LinkLingoSettings,
+    utteranceId: string | undefined,
+    now: number,
+  ): void {
+    const disposition = this.queueGloss(settings, now, utteranceId, "interim")
+    if (disposition !== "queued_gloss" || !utteranceId) return
+    diagnostics.increment("engine.gloss_interim_triggered")
+    this.interimGlossed = {utteranceId, at: now}
+  }
+
+  private clearInterimTimer(): void {
+    if (!this.interimTimer) return
+    clearTimeout(this.interimTimer)
+    this.interimTimer = null
+  }
+
+  /**
+   * How much earlier than the ASR final the last interim-triggered gloss ran.
+   * Consumed once, by the transcript report for that utterance.
+   */
+  takeAsrLeadMs(): number | undefined {
+    const value = this.pendingAsrLeadMs
+    this.pendingAsrLeadMs = null
+    return value ?? undefined
   }
 
   /** Shadow-interim observations whose final has landed; reported with the transcript tape. */
@@ -144,6 +250,10 @@ export class GlossEngine {
     diagnostics.increment("engine.resets")
     this.pending = null
     this.shadow.reset()
+    this.clearInterimTimer()
+    this.interimText = ""
+    this.interimGlossed = null
+    this.pendingAsrLeadMs = null
     this.lastGlossContext = ""
     if (this.pendingTimer) {
       clearTimeout(this.pendingTimer)
@@ -162,8 +272,11 @@ export class GlossEngine {
   private queueGloss(
     settings: LinkLingoSettings,
     eligibleAt: number,
-    utteranceId?: string,
+    utteranceId: string | undefined,
+    trigger: GlossTrigger,
   ): TranscriptDisposition {
+    // Strip the trailing partial word for both triggers. It matters more for
+    // an interim, where the recognizer is still mid-word.
     const context = this.contextForCall(false)
     if (!context) {
       diagnostics.increment("engine.gloss_skipped.no_context")
@@ -178,18 +291,20 @@ export class GlossEngine {
       // pending one and runs as soon as the in-flight call returns.
       diagnostics.increment("engine.gloss_coalesced")
       log.debug("gloss coalesced behind in-flight call", {contextChars: context.length})
-      this.pending = {context, eligibleAt, utteranceId}
+      this.pending = {context, eligibleAt, utteranceId, trigger}
       return "queued_gloss"
     }
+    const cooldownMs = settings.fastCooldown ? GLOSS_COOLDOWN_MS : LEGACY_GLOSS_COOLDOWN_MS
     const sinceLast = eligibleAt - this.lastGlossAt
-    if (sinceLast < GLOSS_COOLDOWN_MS) {
+    const newChars = context.length - this.lastGlossContext.length
+    if (sinceLast < cooldownMs && newChars < COOLDOWN_BYPASS_NEW_CHARS) {
       // Dropped outright, not deferred, so the cost shows up as a missing
       // gloss in the transcript tape rather than as latency on a request.
       diagnostics.increment("engine.gloss_skipped.cooldown")
-      log.debug("gloss suppressed by cooldown", {sinceLast, cooldownMs: GLOSS_COOLDOWN_MS})
+      log.debug("gloss suppressed by cooldown", {sinceLast, cooldownMs, newChars})
       return "skipped_cooldown"
     }
-    void this.runGloss(settings, {context, eligibleAt, utteranceId}, "none")
+    void this.runGloss(settings, {context, eligibleAt, utteranceId, trigger}, "none")
     return "queued_gloss"
   }
 
@@ -211,7 +326,12 @@ export class GlossEngine {
         fluencyLevel: settings.proficiency,
         recentWords: [...this.recent.keys()],
       },
-      {eligibleAt: attempt.eligibleAt, queueReason, trigger: "final", utteranceId: attempt.utteranceId},
+      {
+        eligibleAt: attempt.eligibleAt,
+        queueReason,
+        trigger: attempt.trigger,
+        utteranceId: attempt.utteranceId,
+      },
     )
     this.glossInFlight = false
     this.callbacks.onProcessing(false)
@@ -269,7 +389,8 @@ export class GlossEngine {
       diagnostics.increment("engine.gloss_skipped.duplicate")
       return
     }
-    const wait = Math.max(0, GLOSS_COOLDOWN_MS - (Date.now() - this.lastGlossAt))
+    const cooldownMs = settings.fastCooldown ? GLOSS_COOLDOWN_MS : LEGACY_GLOSS_COOLDOWN_MS
+    const wait = Math.max(0, cooldownMs - (Date.now() - this.lastGlossAt))
     // Distinguishes "waited on the clock" from "waited on the previous call",
     // so a long queueWaitMs names the mechanism that caused it.
     const reason: GlossQueueReason = wait > 0 ? "cooldown" : "coalesced"

@@ -10,7 +10,7 @@ import type {
   TranscriptDisposition,
 } from "../shared/types"
 import {inputLanguage, outputLanguage} from "../shared/types"
-import {reportTranscript, requestFeedback} from "./backend"
+import {preconnect, reportTranscript, requestFeedback} from "./backend"
 import {DisplayRenderer} from "./DisplayRenderer"
 import {GlossEngine} from "./GlossEngine"
 import {toLocale} from "./locales"
@@ -22,6 +22,12 @@ const log = createLogger("controller")
 
 /** How often the running diagnostics snapshot is pushed to an open WebView. */
 const DIAGNOSTICS_INTERVAL_MS = 5000
+/**
+ * Keeps the backend connection from going idle during a conversation. Short
+ * enough to stay under a typical proxy idle timeout, so the next gloss finds
+ * the socket already open.
+ */
+const KEEPALIVE_INTERVAL_MS = 25_000
 
 type Send = <C extends keyof Channels & string>(channel: C, payload: Channels[C]) => void
 
@@ -36,6 +42,7 @@ export class LinkLingoController {
   private profiling: LinkLingoProfiling | null = null
   private streamCleanup: UnsubscribeFn | null = null
   private diagnosticsTimer: ReturnType<typeof setInterval> | null = null
+  private keepaliveTimer: ReturnType<typeof setInterval> | null = null
   private wordExpiryTimer: ReturnType<typeof setTimeout> | null = null
   private uiOpen = false
   private readonly buffer = new TranscriptBuffer()
@@ -104,6 +111,10 @@ export class LinkLingoController {
       this.pushDiagnostics()
     })
     this.startDiagnosticsLoop()
+    this.startKeepaliveLoop()
+    // Opens the connection before the first utterance rather than letting the
+    // first gloss of the session absorb the handshake.
+    preconnect(true)
     log.info("session ready", {startupMs: Date.now() - started})
   }
 
@@ -142,6 +153,16 @@ export class LinkLingoController {
     }, DIAGNOSTICS_INTERVAL_MS)
   }
 
+  /**
+   * Holds the backend connection open for the life of the session. Without
+   * it, the first gloss after any pause in the conversation pays a full TLS
+   * handshake, which from Asia is comparable to the gloss itself.
+   */
+  private startKeepaliveLoop(): void {
+    if (this.keepaliveTimer) return
+    this.keepaliveTimer = setInterval(() => preconnect(), KEEPALIVE_INTERVAL_MS)
+  }
+
   private pushDiagnostics(): void {
     try {
       this.ui.send("link:diagnostics", diagnostics.snapshot())
@@ -170,6 +191,8 @@ export class LinkLingoController {
     on("link:set-display-width", ({displayWidth}) => void this.patch({displayWidth}))
     on("link:set-word-breaking", ({wordBreaking}) => void this.patch({wordBreaking}))
     on("link:set-pinyin-display", ({pinyinDisplay}) => void this.patch({pinyinDisplay}))
+    on("link:set-interim-trigger", ({interimTrigger}) => void this.patch({interimTrigger}))
+    on("link:set-fast-cooldown", ({fastCooldown}) => void this.patch({fastCooldown}))
     on("link:feedback", ({requestId, note}) => void this.askAnalyst(requestId, note))
     on("link:clear", () => {
       log.info("hud cleared by user")
@@ -385,6 +408,9 @@ export class LinkLingoController {
       disposition,
       utteranceId,
       shadowInterim: shadowInterim.length > 0 ? shadowInterim : undefined,
+      // Only present when this utterance was glossed from an interim; it is
+      // the realised version of what shadow mode predicted.
+      asrLeadMs: this.engine.takeAsrLeadMs(),
     })
   }
 

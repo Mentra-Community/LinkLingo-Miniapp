@@ -303,10 +303,20 @@ function printShadow(transcripts: TranscriptEntry[]): void {
   const interimCapable = transcripts.filter((t) => t.disposition !== "skipped_language")
   console.log("")
   console.log("=".repeat(72))
-  if (withShadow.length === 0) {
+  if (withShadow.length === 0 && !transcripts.some((t) => t.asrLeadMs != null)) {
     console.log("shadow interim: no observations (phones predate 1.0.16, or no interims were seen)")
     return
   }
+  // Once interim triggering is live the realised lead is the one that counts;
+  // shadow stays on so the shipped rule can be checked against its prediction.
+  const realised = bandOf(transcripts.map((t) => t.asrLeadMs))
+  if (realised.n > 0) {
+    console.log(
+      `realised interim lead: n=${realised.n} p50 ${realised.p50}ms p95 ${realised.p95}ms ` +
+        `(${Math.round((100 * realised.n) / Math.max(1, interimCapable.length))}% of utterances glossed early)`,
+    )
+  }
+
   const byClient = new Map<string, TranscriptEntry[]>()
   for (const t of withShadow) {
     const key = `${t.clientVersion ?? "?"}/${t.clientBuildId ?? "?"}`

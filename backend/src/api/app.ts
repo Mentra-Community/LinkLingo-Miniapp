@@ -62,6 +62,17 @@ export function createApp(): Hono {
   )
 
   /**
+   * Cheapest possible body, so a phone can open the TLS connection before it
+   * has anything to send. From Asia the handshake alone costs roughly as much
+   * as the gloss itself, and it is otherwise paid on the first request after
+   * every pause in the conversation.
+   */
+  app.get("/ping", (c) => {
+    metrics.increment("ping_total")
+    return c.body(null, 204)
+  })
+
+  /**
    * Operational snapshot. Deliberately unauthenticated like /healthz: it holds
    * counters and latencies only, never transcripts or user identifiers.
    */

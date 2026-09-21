@@ -157,6 +157,11 @@ export interface TranscriptRequest {
   disposition: TranscriptDisposition
   utteranceId?: string
   shadowInterim?: ShadowInterimObservation[]
+  /**
+   * How much earlier than this final the gloss actually ran, once interim
+   * triggering is live. The realised counterpart to the shadow prediction.
+   */
+  asrLeadMs?: number
   /** Which bundle produced the shadow observations, so thresholds stay comparable. */
   clientVersion?: string
   clientBuildId?: string

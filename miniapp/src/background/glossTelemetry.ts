@@ -44,6 +44,11 @@ export class GlossTelemetry {
     this.lastBackendRequestAt = now
   }
 
+  /** How stale the connection is; drives the pre-connect decision. */
+  msSinceBackendRequest(now = Date.now()): number | undefined {
+    return this.lastBackendRequestAt == null ? undefined : now - this.lastBackendRequestAt
+  }
+
   /** Called immediately before the gloss request is sent. */
   begin(attempt: GlossAttempt, now = Date.now()): {requestId: string; client: GlossClientTelemetry} {
     const requestId = newRequestId()

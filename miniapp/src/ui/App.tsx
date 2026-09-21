@@ -321,7 +321,31 @@ export function App() {
               <h2 className="card-title">Diagnostics</h2>
               <span className={`chevron${diagnosticsOpen ? " open" : ""}`}>›</span>
             </button>
-            {diagnosticsOpen ? <DiagnosticsBody diagnostics={diagnostics} /> : null}
+            {diagnosticsOpen ? (
+              <>
+                {/* Both default on. They exist so one installed build can be
+                    A/B'd against the 1.0.16 baseline without a reinstall. */}
+                <div className="rows">
+                  <ToggleRow
+                    title="Gloss early"
+                    detail="Translate a settled phrase without waiting for the sentence to end"
+                    checked={settings.interimTrigger}
+                    onChange={(interimTrigger) =>
+                      setSetting("interimTrigger", "link:set-interim-trigger", {interimTrigger}, interimTrigger)
+                    }
+                  />
+                  <ToggleRow
+                    title="Short gap between glosses"
+                    detail="0.6s instead of 2s, so fast speech is not skipped"
+                    checked={settings.fastCooldown}
+                    onChange={(fastCooldown) =>
+                      setSetting("fastCooldown", "link:set-fast-cooldown", {fastCooldown}, fastCooldown)
+                    }
+                  />
+                </div>
+                <DiagnosticsBody diagnostics={diagnostics} />
+              </>
+            ) : null}
           </section>
 
           <div className="actions">

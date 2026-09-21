@@ -45,6 +45,8 @@ export interface TranscriptEntry {
    * because most utterances never produce a gloss at all.
    */
   shadowInterim?: ShadowInterimObservation[]
+  /** Realised interim lead, once Phase 1 triggering is live. */
+  asrLeadMs?: number
   /** Build that produced the observation, so thresholds are comparable across releases. */
   clientVersion?: string
   clientBuildId?: string
@@ -99,6 +101,7 @@ export class TranscriptLog {
       wouldGloss,
       utteranceId: input.utteranceId,
       shadowInterim: input.shadowInterim?.length ? input.shadowInterim : undefined,
+      asrLeadMs: input.asrLeadMs,
       clientVersion: input.clientVersion,
       clientBuildId: input.clientBuildId,
     }
@@ -109,6 +112,7 @@ export class TranscriptLog {
       metrics.increment("shadow_interim_total", {variant: observation.variant})
       metrics.observe("shadow_interim_lead", observation.leadMs, {variant: observation.variant})
     }
+    if (input.asrLeadMs != null) metrics.observe("gloss_asr_lead", input.asrLeadMs)
     if (this.file) this.append(entry)
     return entry
   }
@@ -179,6 +183,7 @@ export function formatTranscriptEntry(entry: TranscriptEntry): string {
     `  heard:      ${entry.text || "(empty)"}`,
     `  would gloss: ${entry.wouldGloss.join(", ") || "(none)"}`,
   ]
+  if (entry.asrLeadMs != null) lines.push(`  asr lead:   glossed ${entry.asrLeadMs}ms before the final`)
   if (entry.shadowInterim?.length) {
     const shadow = entry.shadowInterim
       .map((o) => `${o.variant} +${o.leadMs}ms${o.wouldDuplicate ? " (dup)" : ""}`)

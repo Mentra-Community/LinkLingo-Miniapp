@@ -12,6 +12,14 @@ export interface LinkLingoSettings {
   displayWidth: 0 | 1 | 2
   wordBreaking: boolean
   pinyinDisplay: boolean
+  /**
+   * Gloss from a settled interim instead of waiting for the ASR final. On by
+   * default; exposed so one build can be A/B'd against the 1.0.16 baseline
+   * without a reinstall.
+   */
+  interimTrigger: boolean
+  /** Short gloss cooldown with a new-content bypass, versus the legacy 2s floor. */
+  fastCooldown: boolean
 }
 
 export const SETTINGS_SCHEMA_VERSION = 3
@@ -33,6 +41,8 @@ export const DEFAULT_SETTINGS: LinkLingoSettings = {
   displayWidth: 1,
   wordBreaking: false,
   pinyinDisplay: true,
+  interimTrigger: true,
+  fastCooldown: true,
 }
 
 export interface GlossedWord {

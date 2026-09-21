@@ -176,9 +176,28 @@ bun run review:latency -- --baseline backend/data/review-baseline.jsonl
 ```
 
 The transcript tape additionally carries **shadow interim** results: both
-candidate rules for the planned interim trigger (300 ms stable, 6-char growth)
-are evaluated on the phone without sending anything, so how much earlier they
-*would* have glossed is known before that behaviour ships.
+candidate rules for the interim trigger (300 ms stable, 6-char growth) are
+evaluated on the phone whether or not the trigger is enabled, so the shipped
+rule can be checked against what it predicted. `asrLeadMs` is the realised
+version: how much earlier than the ASR final a gloss actually ran.
+
+## What the gloss engine waits for
+
+Three things sit between speech and a gloss, all tunable from the WebView's
+Diagnostics panel so one installed build can be compared against the baseline:
+
+- **Gloss early** (`interimTrigger`, on): gloss a still-running utterance once
+  it has grown 6+ characters past the last one sent, or has gone 300 ms without
+  being revised. The ASR final for the same utterance then hits the existing
+  duplicate check instead of costing a second call.
+- **Short gap between glosses** (`fastCooldown`, on): 600 ms instead of 2 s,
+  bypassed entirely when 8+ new characters have arrived. A cooldown hit *drops*
+  a gloss rather than delaying it, so its cost shows up as a missing gloss in
+  the transcript tape, not as latency on a request.
+- **Pre-connect**: `GET /ping` on an interim after 20 s idle, plus a 25 s
+  heartbeat while the transcription stream is live. From Asia the TLS handshake
+  costs about as much as the gloss itself, and it is otherwise paid again after
+  every pause.
 
 `buildId` on `/healthz` and `serverBuildId` on every entry exist so a
 backend-only change is visible against an unchanged client version. The CI
