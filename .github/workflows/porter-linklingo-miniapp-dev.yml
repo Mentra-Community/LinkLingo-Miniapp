@@ -32,6 +32,12 @@ jobs:
       - name: Set Github tag
         id: vars
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      # Stamp the commit into the build context. The Dockerfile copies it into
+      # both the miniapp bundle and the runtime image, so the review tape can
+      # tell two builds of the same version apart — which is the only way a
+      # backend-only change is visible against an unchanged client version.
+      - name: Stamp build id
+        run: echo "${{ steps.vars.outputs.sha_short }}" > build-id.txt
       - name: Setup porter
         uses: porter-dev/setup-porter@v0.1.0
       - name: Deploy stack

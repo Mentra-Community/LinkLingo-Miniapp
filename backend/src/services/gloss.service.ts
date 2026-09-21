@@ -1,3 +1,4 @@
+import {currentRequestContext} from "../observability/context"
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
 import type {GlossRequest, GlossResponse, GlossedWord} from "../shared-types"
@@ -106,13 +107,31 @@ export class GlossService {
       : []
     const selectMs = Date.now() - selectStarted
 
-    // The phone reports the previous call's round trip, so the tape carries the
-    // only end-to-end number we have. Recorded on every entry, including skips.
-    const clientRoundTripMs =
-      typeof body.clientRoundTripMs === "number" && Number.isFinite(body.clientRoundTripMs) && body.clientRoundTripMs >= 0
-        ? Math.round(body.clientRoundTripMs)
-        : undefined
-    if (clientRoundTripMs != null) metrics.observe("gloss_client_round_trip", clientRoundTripMs)
+    // The phone's completed timings describe an earlier request, so they are
+    // back-filled onto that entry rather than attached to this one. Doing it
+    // the other way round would read this request's queue wait and idle window
+    // against the previous request's round trip.
+    const previous = body.client?.previousRequestMetrics
+    if (previous) {
+      reviewLog.applyPreviousClientMetrics(previous)
+      metrics.observe("gloss_client_round_trip", previous.roundTripMs)
+      if (previous.renderMs != null) metrics.observe("gloss_client_render", previous.renderMs)
+      if (previous.triggerToRenderMs != null) {
+        metrics.observe("gloss_trigger_to_render", previous.triggerToRenderMs)
+      }
+    } else if (typeof body.clientRoundTripMs === "number" && body.clientRoundTripMs >= 0) {
+      // Pre-1.0.16 phones send an unattributed number. Counted, but never
+      // written onto an entry, because there is no id saying which one.
+      metrics.observe("gloss_client_round_trip", Math.round(body.clientRoundTripMs))
+      metrics.increment("gloss_client_metrics_legacy_total")
+    }
+
+    const current = body.client?.current
+    if (current) {
+      metrics.increment("gloss_trigger_total", {trigger: current.trigger})
+      metrics.increment("gloss_queue_reason_total", {reason: current.queueReason})
+      metrics.observe("gloss_client_queue_wait", current.queueWaitMs)
+    }
 
     const review = (fields: Partial<ReviewEntryInput> & {outcome: string; totalMs: number}) =>
       reviewLog.record({
@@ -128,7 +147,16 @@ export class GlossService {
         recent,
         accepted: [],
         rejected: [],
-        clientRoundTripMs,
+        selectMs,
+        clientVersion: body.client?.version,
+        clientBuildId: body.client?.buildId,
+        sessionId: body.client?.sessionId,
+        requestSeq: current?.requestSeq,
+        utteranceId: current?.utteranceId,
+        trigger: current?.trigger,
+        queueReason: current?.queueReason,
+        queueWaitMs: current?.queueWaitMs,
+        networkIdleMs: current?.networkIdleMs,
         ...fields,
       })
 
@@ -159,6 +187,7 @@ export class GlossService {
           model: this.model,
           candidateCount: candidates.length,
           knownRank,
+          requestId: currentRequestContext()?.requestId,
         },
       }
     }
@@ -172,6 +201,7 @@ export class GlossService {
       return {
         words: [mockWord],
         profiling: {
+          requestId: currentRequestContext()?.requestId,
           totalMs: Date.now() - started,
           model: "mock",
           candidateCount: candidates.length,
@@ -288,13 +318,16 @@ export class GlossService {
       proposed: proposed.map((p) => ({word: (p.word ?? "").trim(), translation: (p.translation ?? "").trim()})),
       accepted: words,
       rejected,
-      geminiMs: result.geminiMs,
+      llmMs: result.llmMs,
+      geminiMs: result.llmMs,
+      llmIdleMs: result.llmIdleMs,
       totalMs,
     })
 
     call.info("gloss complete", {
       totalMs,
-      geminiMs: result.geminiMs,
+      llmMs: result.llmMs,
+      llmIdleMs: result.llmIdleMs,
       candidateCount: candidates.length,
       proposedCount: proposed.length,
       acceptedCount: words.length,
@@ -308,11 +341,14 @@ export class GlossService {
       words,
       profiling: {
         totalMs,
-        geminiMs: result.geminiMs,
+        llmMs: result.llmMs,
+        // Pre-1.0.16 phones read this name; harmless duplication until they age out.
+        geminiMs: result.llmMs,
         parseMs: result.parseMs,
         model: result.model,
         candidateCount: candidates.length,
         knownRank,
+        requestId: currentRequestContext()?.requestId,
       },
     }
   }

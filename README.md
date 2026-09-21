@@ -133,15 +133,57 @@ bun run review:doppler -- --save backend/data/review.jsonl   # archive locally
 bun run review -- --file backend/data/review.jsonl --since 7d # review the archive
 ```
 
-The summary prints three nested latency bands: `phone rtt` is what the learner
-actually waited for (both network legs included), `server` is the backend's own
-span, and `model` is the LLM call. The phone cannot know its round trip until
-the response lands, so it reports the previous call's timing on the next
-request — meaning the first gloss of a session has no `phoneRtt` and the count
-in the summary trails the call count by one per session.
-
 Each entry carries `prompt=<hash>` so output before and after a prompt edit can
-be compared. The pod's copy is in memory and resets on redeploy; `--save`
+be compared.
+
+## Measuring latency
+
+`bun run review:latency` breaks one gloss into the phases it actually spends
+time in, grouped by client build, server build and model:
+
+```
+client 1.0.16/a1b2c3d x server e4f5g6h x openai/gpt-oss-120b   n=143
+                      p50     p95
+  trigger->render      610    1240   (n=141)
+  queue                 18     730   (n=143)
+  phone RTT            391     760   (n=141)
+  server               238     390   (n=143)
+  model                217     350   (n=140)
+  render                 3       8   (n=138)
+  queue reason:    none 120  cooldown 21  coalesced 2
+  phone RTT/idle:  <30s n=105 322/480   >2m n=10 714/1020
+```
+
+`trigger->render` is the number to optimise: eligible-to-rendered, measured
+from timestamps rather than by summing the parts. `queue` is the wait the
+engine imposed before sending, and `queue reason` names the mechanism that
+caused it. Every row carries `n`; a p95 over fewer than 30 calls is printed but
+should not be acted on.
+
+Timings are keyed to a **client-minted** request id sent as `X-Request-Id`. The
+phone only learns its own round trip after the response lands, so those numbers
+ride along with the *next* request and the backend back-fills them onto the
+entry whose id matches. Attaching them to the request that carried them would
+pair one gloss's queue wait with the previous gloss's round trip. The newest
+call in each session therefore always shows a pending `trigger->render`.
+
+`--by-session` splits by session so a cold first request is separable from a
+warm tenth. `--baseline <file>` prints deltas against an archived window:
+
+```
+bun run review:archive                                   # append to backend/data/review.jsonl
+bun run review:latency -- --baseline backend/data/review-baseline.jsonl
+```
+
+The transcript tape additionally carries **shadow interim** results: both
+candidate rules for the planned interim trigger (300 ms stable, 6-char growth)
+are evaluated on the phone without sending anything, so how much earlier they
+*would* have glossed is known before that behaviour ships.
+
+`buildId` on `/healthz` and `serverBuildId` on every entry exist so a
+backend-only change is visible against an unchanged client version. The CI
+workflow stamps the commit into `build-id.txt`; the committed copy says `dev`,
+which means "fall back to the working tree's git SHA". The pod's copy is in memory and resets on redeploy; `--save`
 appends new entries (deduplicated) to a JSONL file, so a daily run keeps a
 durable history. `--problems` is the prompt-tuning view: `untranslated` means
 the model answered in the wrong language, `echo` that it repeated the word,

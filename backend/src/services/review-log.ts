@@ -13,9 +13,11 @@
 import {createHash} from "node:crypto"
 import {appendFileSync} from "node:fs"
 
+import {serverBuildId} from "../observability/build-id"
 import {currentRequestContext} from "../observability/context"
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
+import type {GlossClientPrevious, GlossQueueReason, GlossTrigger} from "../shared-types"
 
 const log = createLogger("review")
 
@@ -60,10 +62,38 @@ export interface ReviewEntry {
   proposed?: ReviewPair[]
   accepted: ReviewPair[]
   rejected: ReviewRejection[]
+  /** @deprecated Renamed to `llmMs`; still written so old archives stay readable. */
   geminiMs?: number
+  llmMs?: number
   totalMs: number
-  /** Phone-measured round trip of the previous call; see GlossRequest. */
+  /** Token verification; dominates a cold request when the JWKS cache misses. */
+  authMs?: number
+  /** Tokenise plus frequency ranking, the only meaningful CPU on this path. */
+  selectMs?: number
+  /** Exact gap since this pod's previous upstream call; buckets are a reporting choice. */
+  llmIdleMs?: number
+  /** Build of the backend that served this call, so a server-only change is visible. */
+  serverBuildId?: string
+
+  // ---- Client identity and phases ------------------------------------------
+  // Written from `GlossRequest.client`. `clientRoundTripMs` and the render
+  // numbers arrive one request late and are back-filled onto the entry whose
+  // `requestId` matches, never onto the request that carried them.
+  clientVersion?: string
+  clientBuildId?: string
+  sessionId?: string
+  requestSeq?: number
+  utteranceId?: string
+  trigger?: GlossTrigger
+  queueReason?: GlossQueueReason
+  queueWaitMs?: number
+  networkIdleMs?: number
+  /** Phone-measured round trip, including both network legs. */
   clientRoundTripMs?: number
+  renderMs?: number
+  /** The KPI: eligible-to-rendered, the span the learner actually waits through. */
+  triggerToRenderMs?: number
+  clientOutcome?: "ok" | "error"
 }
 
 export type ReviewEntryInput = Omit<ReviewEntry, "id" | "at" | "requestId" | "user">
@@ -112,8 +142,12 @@ export class ReviewLog {
     const entry: ReviewEntry = {
       id: `${now.toString(36)}-${(this.seq++).toString(36)}`,
       at: now,
+      // The phone mints this and sends it as X-Request-Id, which the HTTP
+      // middleware adopts, so it is the same id the client holds.
       requestId: request?.requestId,
       user: request?.userId ? digest(request.userId) : undefined,
+      authMs: request?.authMs,
+      serverBuildId: serverBuildId(),
       ...input,
     }
     this.entries.push(entry)
@@ -121,6 +155,29 @@ export class ReviewLog {
     metrics.increment("review_entries_total", {op: entry.op, outcome: entry.outcome})
     if (this.file) this.append(entry)
     return entry
+  }
+
+  /**
+   * Back-fills the phone's completed timings onto the entry they describe.
+   *
+   * These always arrive one request late, so writing them onto the request
+   * that carried them would pair request N's queue wait and idle window with
+   * request N-1's round trip. Matching on `requestId` keeps every row
+   * internally consistent; an unmatched id (pod restarted, entry pruned) is
+   * dropped rather than guessed at.
+   */
+  applyPreviousClientMetrics(previous: GlossClientPrevious): boolean {
+    for (let i = this.entries.length - 1; i >= 0; i--) {
+      const entry = this.entries[i]
+      if (entry.requestId !== previous.requestId) continue
+      entry.clientRoundTripMs = previous.roundTripMs
+      entry.renderMs = previous.renderMs
+      entry.triggerToRenderMs = previous.triggerToRenderMs
+      entry.clientOutcome = previous.outcome
+      return true
+    }
+    metrics.increment("review_client_metrics_unmatched_total")
+    return false
   }
 
   list(query: ReviewQuery = {}, now = Date.now()): ReviewEntry[] {
@@ -196,8 +253,13 @@ export function formatReviewEntry(entry: ReviewEntry): string {
     lines.push(`  dropped:    ${entry.rejected.map((r) => `${r.word} (${r.reason})`).join(", ")}`)
   }
   const meta = [entry.model, `prompt=${entry.promptVersion}`]
-  if (entry.geminiMs != null) meta.push(`model=${entry.geminiMs}ms`)
+  const llmMs = entry.llmMs ?? entry.geminiMs
+  if (llmMs != null) meta.push(`model=${llmMs}ms`)
+  if (entry.queueWaitMs != null) meta.push(`queue=${entry.queueWaitMs}ms/${entry.queueReason ?? "?"}`)
   if (entry.clientRoundTripMs != null) meta.push(`phoneRtt=${entry.clientRoundTripMs}ms`)
+  if (entry.triggerToRenderMs != null) meta.push(`trigger->render=${entry.triggerToRenderMs}ms`)
+  if (entry.clientVersion) meta.push(`client=${entry.clientVersion}/${entry.clientBuildId ?? "?"}`)
+  if (entry.serverBuildId) meta.push(`server=${entry.serverBuildId}`)
   if (entry.user) meta.push(`user=${entry.user}`)
   if (entry.requestId) meta.push(`req=${entry.requestId}`)
   lines.push(`  ${meta.join("  ")}`)

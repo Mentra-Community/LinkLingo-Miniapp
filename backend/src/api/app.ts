@@ -1,6 +1,7 @@
 import {Hono} from "hono"
 import {cors} from "hono/cors"
 
+import {serverBuildId} from "../observability/build-id"
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
 import {dictionaryDiagnostics} from "../services/frequency"
@@ -45,6 +46,9 @@ export function createApp(): Hono {
       status: "ok",
       service: "linklingo-miniapp-backend",
       package: process.env.PACKAGE_NAME ?? "com.mentra.link",
+      // Stamped on every review entry too, so a backend-only change is
+      // separable from the client build it ran under.
+      buildId: serverBuildId(),
       model: glossService.model,
       analystModel: resolveAnalystModel(),
       llmKeySource: resolveApiKeySource() ?? null,
@@ -64,6 +68,7 @@ export function createApp(): Hono {
   app.get("/metrics", (c) =>
     c.json({
       service: "linklingo-miniapp-backend",
+      buildId: serverBuildId(),
       model: glossService.model,
       llmKeyFingerprint: apiKeyFingerprint() ?? null,
       dictionaries: dictionaryDiagnostics(),

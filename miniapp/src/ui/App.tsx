@@ -521,7 +521,9 @@ function proficiencyLabel(value: number): string {
 function latency(snap: LinkLingoSnapshot): string {
   const parts = []
   if (snap.profiling?.clientRoundTripMs != null) parts.push(`${snap.profiling.clientRoundTripMs}ms`)
-  if (snap.profiling?.geminiMs != null) parts.push(`model ${snap.profiling.geminiMs}ms`)
+  // geminiMs is the pre-1.0.16 name; a newer phone can still meet an older backend.
+  const modelMs = snap.profiling?.llmMs ?? snap.profiling?.geminiMs
+  if (modelMs != null) parts.push(`model ${modelMs}ms`)
   return parts.join(" · ") || "Ready"
 }
 

@@ -1,6 +1,14 @@
 import type {MiniappSession} from "@mentra/miniapp/background"
 
-import type {FeedbackAnalysis, GlossedWord, LinkLingoProfiling, TranscriptDisposition} from "../shared/types"
+import type {
+  FeedbackAnalysis,
+  GlossedWord,
+  LinkLingoProfiling,
+  ShadowInterimObservation,
+  TranscriptDisposition,
+} from "../shared/types"
+import {glossTelemetry, type GlossAttempt} from "./glossTelemetry"
+import {CLIENT_BUILD_ID, CLIENT_VERSION} from "./identity"
 import {createLogger, diagnostics} from "./observability"
 
 const log = createLogger("api")
@@ -21,16 +29,6 @@ export interface UpgradeApiResult {
 }
 
 export type BackendResult<T> = {ok: true; data: T} | {ok: false; message: string}
-
-/**
- * Round trip of the last gloss call, piggybacked onto the next one.
- *
- * The server can time itself but never sees the two network legs, and the
- * phone only learns its round trip after the response has landed — too late to
- * report in the same request. Carrying it forward gets the end-to-end number
- * onto the 24h review tape without spending an extra POST per gloss.
- */
-let lastGlossRoundTripMs: number | undefined
 
 function url(path: string): string {
   return `${BACKEND_URL.replace(/\/$/, "")}${path}`
@@ -79,52 +77,63 @@ export async function requestGloss(
     fluencyLevel: number
     recentWords: string[]
   },
+  attempt: GlossAttempt,
 ): Promise<BackendResult<GlossApiResult>> {
   const started = Date.now()
+  // Minted here rather than server-side: the backend adopts an incoming
+  // X-Request-Id, so the tape entry and the phone's own timings share one key
+  // instead of being matched up by timestamp afterwards.
+  const {requestId, client} = glossTelemetry.begin(attempt, started)
   diagnostics.increment("gloss.requests")
   log.debug("gloss request", {
+    requestId,
     contextChars: body.conversationContext.length,
     in: body.inputLanguage,
     out: body.outputLanguage,
     recentCount: body.recentWords.length,
+    queueReason: attempt.queueReason,
+    queueWaitMs: client.current.queueWaitMs,
   })
   try {
     const res = await session.auth.fetch(url("/api/gloss"), {
       method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({...body, clientRoundTripMs: lastGlossRoundTripMs}),
+      headers: {"Content-Type": "application/json", "X-Request-Id": requestId},
+      body: JSON.stringify({...body, client}),
     })
     const durationMs = Date.now() - started
     diagnostics.observe("gloss.roundTrip", durationMs)
-    lastGlossRoundTripMs = durationMs
     if (!res.ok) {
+      glossTelemetry.noteResponse(requestId, durationMs, "error")
       const message = await describeFailure("gloss", res, durationMs)
       diagnostics.recordError(message)
       return {ok: false, message}
     }
+    glossTelemetry.noteResponse(requestId, durationMs, "ok")
     const data = (await res.json()) as GlossApiResult
     const words = data.words ?? []
     diagnostics.increment("gloss.ok")
     diagnostics.increment("gloss.words", words.length)
     log.info("gloss ok", {
+      requestId,
       durationMs,
+      queueWaitMs: client.current.queueWaitMs,
       words: words.length,
       serverMs: data.profiling?.totalMs,
-      modelMs: data.profiling?.geminiMs,
-      requestId: res.headers.get("x-request-id") ?? undefined,
+      modelMs: data.profiling?.llmMs ?? data.profiling?.geminiMs,
     })
     return {
       ok: true,
       data: {
         words,
-        profiling: {...data.profiling, clientRoundTripMs: durationMs},
+        profiling: {...data.profiling, clientRoundTripMs: durationMs, requestId},
       },
     }
   } catch (err) {
     const durationMs = Date.now() - started
+    glossTelemetry.noteResponse(requestId, durationMs, "error")
     diagnostics.increment("gloss.transport_error")
     diagnostics.recordError("Cannot reach LinkLingo backend")
-    log.error("gloss transport failure", {durationMs, url: BACKEND_URL, error: err as Error})
+    log.error("gloss transport failure", {requestId, durationMs, url: BACKEND_URL, error: err as Error})
     return {ok: false, message: "Cannot reach LinkLingo backend"}
   }
 }
@@ -139,15 +148,22 @@ export function reportTranscript(
     fluencyLevel: number
     mode: string
     disposition: TranscriptDisposition
+    utteranceId?: string
+    /** Shadow-interim results for utterances whose final has now landed. */
+    shadowInterim?: ShadowInterimObservation[]
   },
 ): void {
   const started = Date.now()
+  const payload = {...body, clientVersion: CLIENT_VERSION, clientBuildId: CLIENT_BUILD_ID}
   diagnostics.increment("transcript.reports")
+  // Counts toward networkIdleMs: this POST warms the same TLS connection the
+  // next gloss will use, so ignoring it would overstate how cold that gloss is.
+  glossTelemetry.noteBackendRequest(started)
   void session.auth
     .fetch(url("/api/transcript"), {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     })
     .then((res) => {
       diagnostics.observe("transcript.roundTrip", Date.now() - started)
@@ -217,6 +233,7 @@ export async function requestUpgrade(
 ): Promise<BackendResult<UpgradeApiResult>> {
   const started = Date.now()
   diagnostics.increment("upgrade.requests")
+  glossTelemetry.noteBackendRequest(started)
   try {
     const res = await session.auth.fetch(url("/api/upgrade"), {
       method: "POST",

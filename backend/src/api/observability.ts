@@ -62,3 +62,8 @@ export const requestObservability = createMiddleware(async (c, next) => {
 export function noteAuthenticatedUser(userId: string | undefined): void {
   annotateRequestContext({userId})
 }
+
+/** JWKS verification can dominate a cold request; the tape needs it separated out. */
+export function noteAuthDuration(authMs: number): void {
+  annotateRequestContext({authMs})
+}

@@ -88,6 +88,36 @@ describe("ReviewLog", () => {
     expect(JSON.parse(lines[1]).outcome).toBe("no_words")
   })
 
+  test("the phone's late timings land on the request they describe, not the one that carried them", () => {
+    const log = new ReviewLog(24 * HOUR, 100, null)
+    runWithRequestContext({requestId: "req-1"}, () => log.record(entry(), 1_000))
+    runWithRequestContext({requestId: "req-2"}, () => log.record(entry(), 2_000))
+
+    const matched = log.applyPreviousClientMetrics({
+      requestId: "req-1",
+      roundTripMs: 391,
+      renderMs: 4,
+      triggerToRenderMs: 612,
+      outcome: "ok",
+    })
+
+    expect(matched).toBe(true)
+    const [first, second] = log.list({}, 3_000)
+    expect(first.clientRoundTripMs).toBe(391)
+    expect(first.triggerToRenderMs).toBe(612)
+    // req-2 physically carried those numbers but they are not its own.
+    expect(second.clientRoundTripMs).toBeUndefined()
+  })
+
+  test("timings for an entry that has already aged out are dropped, not guessed at", () => {
+    const log = new ReviewLog(24 * HOUR, 100, null)
+    runWithRequestContext({requestId: "req-1"}, () => log.record(entry(), 1_000))
+    expect(
+      log.applyPreviousClientMetrics({requestId: "gone", roundTripMs: 99, outcome: "ok"}),
+    ).toBe(false)
+    expect(log.list({}, 2_000)[0].clientRoundTripMs).toBeUndefined()
+  })
+
   test("renders an entry for a human reviewer", () => {
     const log = new ReviewLog(24 * HOUR, 100, null)
     const recorded = log.record(

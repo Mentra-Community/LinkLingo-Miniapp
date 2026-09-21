@@ -295,12 +295,17 @@ export class LinkLingoController {
         })
       }
     }
-    this.buffer.push(text, data.isFinal, data.language)
+    // The buffer already correlates an interim with its final under one id,
+    // which is what lets a shadow-interim observation be tied to the utterance
+    // it would have glossed. TranscriptionData itself carries no id.
+    const utterance = this.buffer.push(text, data.isFinal, data.language)
     this.caption = text
     this.display.showCaption(text, data.isFinal, this.settings, this.engine.currentWords(this.words, this.settings))
     this.ui.send("link:caption", {text, isFinal: data.isFinal})
-    const disposition = this.engine.consider(text, data.isFinal, this.settings)
-    if (data.isFinal && text && disposition) this.recordTranscript(text, data.language, disposition)
+    const disposition = this.engine.consider(text, data.isFinal, this.settings, utterance.id)
+    if (data.isFinal && text && disposition) {
+      this.recordTranscript(text, data.language, disposition, utterance.id)
+    }
   }
 
   private handleTranslation(data: TranslationData): void {
@@ -318,13 +323,13 @@ export class LinkLingoController {
         log.warn("translation stream returned empty text", {source: data.sourceLanguage})
       }
     }
-    this.buffer.push(original || translated, data.isFinal, data.sourceLanguage)
+    const utterance = this.buffer.push(original || translated, data.isFinal, data.sourceLanguage)
     this.original = original
     this.translation = translated
     this.display.showTranslation(original, translated, this.settings)
     this.ui.send("link:translation", {original, translated, isFinal: data.isFinal})
     if (data.isFinal && (original || translated)) {
-      this.recordTranscript(original || translated, data.sourceLanguage, "translation_mode")
+      this.recordTranscript(original || translated, data.sourceLanguage, "translation_mode", utterance.id)
     }
   }
 
@@ -360,7 +365,16 @@ export class LinkLingoController {
     this.ui.send("link:feedback-result", {requestId, ok: true, analysis: result.data})
   }
 
-  private recordTranscript(text: string, detectedLanguage: string | undefined, disposition: TranscriptDisposition): void {
+  private recordTranscript(
+    text: string,
+    detectedLanguage: string | undefined,
+    disposition: TranscriptDisposition,
+    utteranceId?: string,
+  ): void {
+    // Shadow results ride the transcript tape rather than the gloss tape:
+    // they exist per utterance, including the many utterances that never
+    // produce a gloss at all.
+    const shadowInterim = this.engine.drainShadowObservations()
     reportTranscript(this.session, {
       text,
       detectedLanguage,
@@ -369,6 +383,8 @@ export class LinkLingoController {
       fluencyLevel: this.settings.proficiency,
       mode: this.settings.mode,
       disposition,
+      utteranceId,
+      shadowInterim: shadowInterim.length > 0 ? shadowInterim : undefined,
     })
   }
 

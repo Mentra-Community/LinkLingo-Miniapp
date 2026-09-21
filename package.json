@@ -32,6 +32,8 @@
     "bench:models:doppler": "doppler run --project linklingo --config dev -- bun run bench:models",
     "review": "LOG_LEVEL=silent bun backend/scripts/review-gloss.ts",
     "review:doppler": "doppler run --project linklingo --config dev --preserve-env -- bun run review",
+    "review:latency": "doppler run --project linklingo --config dev --preserve-env -- bun run review -- --latency",
+    "review:archive": "doppler run --project linklingo --config dev --preserve-env -- bun run review -- --save backend/data/review.jsonl",
     "sync-vendor": "bash scripts/sync-vendor.sh"
   },
   "dependencies": {

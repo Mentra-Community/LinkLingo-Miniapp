@@ -31,6 +31,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends zip \
     && rm -rf /var/lib/apt/lists/*
 
+# Stamped with the deploy commit by the CI workflow; the committed copy says
+# "dev". build.ts inlines it so a gloss can name the bundle that produced it.
+COPY build-id.txt ./
 COPY miniapp ./miniapp
 RUN cd miniapp && bun run build.ts
 
@@ -49,6 +52,8 @@ ENV MINIAPP_BUNDLE_BACKEND_URL=${MENTRA_PUBLIC_LINKLINGO_BACKEND_URL}
 COPY --from=install /app/node_modules ./node_modules
 COPY --from=install /app/vendor ./vendor
 COPY package.json bunfig.toml ./
+# Same stamp the bundle carries, read at boot and reported on /healthz.
+COPY build-id.txt ./
 COPY backend ./backend
 COPY --from=miniapp /app/miniapp/dist ./miniapp-bundle/dist
 COPY --from=miniapp /app/bundle.zip ./miniapp-bundle/bundle.zip

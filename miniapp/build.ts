@@ -14,7 +14,39 @@ const PUBLIC_VARS = [
   "MENTRA_PUBLIC_LINKLINGO_LOG_LEVEL",
 ] as const
 
-const define: Record<string, string> = {}
+/**
+ * Build identity, inlined so every gloss can say which bundle produced it.
+ * Without it a rebuilt 1.0.16 is indistinguishable from the original in the
+ * latency baseline. `build-id.txt` is stamped by the deploy workflow; the
+ * committed copy says "dev", which means "use the working tree's git SHA"
+ * (available locally, absent inside the image).
+ */
+async function resolveBuildId(): Promise<string> {
+  const explicit = process.env.MENTRA_PUBLIC_LINKLINGO_BUILD_ID?.trim()
+  if (explicit) return explicit
+
+  const stamp = Bun.file("../build-id.txt")
+  if (await stamp.exists()) {
+    const value = (await stamp.text()).trim()
+    if (value && value !== "dev") return value
+  }
+
+  try {
+    const git = Bun.spawnSync(["git", "rev-parse", "--short", "HEAD"], {stderr: "ignore"})
+    const sha = new TextDecoder().decode(git.stdout).trim()
+    if (git.exitCode === 0 && sha) return sha
+  } catch {
+    // No git in the build image; "dev" is the honest answer.
+  }
+  return "dev"
+}
+
+const manifest = (await Bun.file("./miniapp.json").json()) as {version?: string}
+
+const define: Record<string, string> = {
+  "process.env.MENTRA_PUBLIC_LINKLINGO_VERSION": JSON.stringify(manifest.version ?? "0.0.0"),
+  "process.env.MENTRA_PUBLIC_LINKLINGO_BUILD_ID": JSON.stringify(await resolveBuildId()),
+}
 for (const k of PUBLIC_VARS) {
   define[`process.env.${k}`] = JSON.stringify(process.env[k] ?? "")
 }
@@ -56,4 +88,6 @@ if (!uiResult.success) {
 
 await copyFile("./miniapp.json", `${distDir}/miniapp.json`)
 await copyFile("./icon.png", `${distDir}/icon.png`)
-console.log("staged miniapp.json + icon.png into dist/")
+console.log(
+  `staged miniapp.json + icon.png into dist/ (version=${manifest.version} build=${JSON.parse(define["process.env.MENTRA_PUBLIC_LINKLINGO_BUILD_ID"]!)})`,
+)

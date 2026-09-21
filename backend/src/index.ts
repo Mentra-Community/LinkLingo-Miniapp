@@ -1,4 +1,5 @@
 import {createApp} from "./api/app"
+import {serverBuildId} from "./observability/build-id"
 import {createLogger, logFormat, logLevel} from "./observability/logger"
 import {metrics} from "./observability/metrics"
 import {apiKeyFingerprint, allowMockLlm, resolveApiKeySource, resolveModel} from "./services/gemini"
@@ -22,6 +23,7 @@ function logStartupConfig(port: number): void {
     port,
     nodeEnv: process.env.NODE_ENV ?? "(unset)",
     package: process.env.PACKAGE_NAME ?? "com.mentra.link",
+    buildId: serverBuildId(),
     model: resolveModel(),
     llmKeySource: resolveApiKeySource() ?? "(none)",
     llmKeyFingerprint: apiKeyFingerprint() ?? "(none)",

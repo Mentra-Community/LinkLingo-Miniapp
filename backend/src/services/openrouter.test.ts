@@ -26,7 +26,7 @@ test('routes structured output through OpenRouter and preserves legacy response 
   expect(result.text).toBe('{"text":"hello"}')
   expect(result.finishReason).toBe('STOP')
   expect(result.truncated).toBe(false)
-  expect(result.geminiMs).toBeGreaterThanOrEqual(0)
+  expect(result.llmMs).toBeGreaterThanOrEqual(0)
   expect(result.usage.totalTokens).toBe(15)
 })
 test('analyst model and reasoning remain separately configurable; length maps to truncation', async () => {

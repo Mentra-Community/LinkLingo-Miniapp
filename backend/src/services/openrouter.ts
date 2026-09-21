@@ -50,12 +50,19 @@ export interface GeminiUsage {
 
 export interface GeminiCallResult {
   text: string
-  geminiMs: number
+  llmMs: number
   parseMs: number
   model: string
   finishReason?: string
   usage: GeminiUsage
   truncated: boolean
+  /**
+   * Gap since this pod's previous LLM call. An idle connection is re-handshaked
+   * upstream, so a cold call costs more than a warm one; keeping the raw number
+   * lets the keep-warm work be judged at whatever bucket boundary turns out to
+   * matter, rather than the ones guessed at today.
+   */
+  llmIdleMs?: number
 }
 
 export function resolveModel(): string {
@@ -96,6 +103,17 @@ export function apiKeyFingerprint(): string | undefined {
 
 export function allowMockLlm(): boolean {
   return process.env.LINKLINGO_ALLOW_MOCK_LLM === "true"
+}
+
+/** Wall clock of the previous upstream call, for the cold/warm split. */
+let lastLlmCallAt: number | null = null
+
+/** Bounded labels for metrics; the review tape keeps the exact milliseconds. */
+function idleBucket(idleMs: number | undefined): string {
+  if (idleMs == null) return "first"
+  if (idleMs < 30_000) return "<30s"
+  if (idleMs < 120_000) return "<2m"
+  return ">2m"
 }
 
 /**
@@ -153,6 +171,9 @@ export async function generateJson(opts: GeminiCallOptions): Promise<GeminiCallR
   })
 
   const started = Date.now()
+  const llmIdleMs = lastLlmCallAt == null ? undefined : started - lastLlmCallAt
+  const bucket = idleBucket(llmIdleMs)
+  lastLlmCallAt = started
   let response: Response
   try {
     response = await fetch(
@@ -173,22 +194,22 @@ export async function generateJson(opts: GeminiCallOptions): Promise<GeminiCallR
       },
     )
   } catch (error) {
-    const geminiMs = Date.now() - started
+    const llmMs = Date.now() - started
     metrics.increment("llm_calls_total", {op: opts.operation, outcome: "transport_error"})
-    metrics.observe("llm_call_duration", geminiMs, {op: opts.operation})
-    call.error("llm transport failure", {geminiMs, error})
+    metrics.observe("llm_call_duration", llmMs, {op: opts.operation, idle: bucket})
+    call.error("llm transport failure", {llmMs, llmIdleMs, error})
     throw new LlmServiceError("OpenRouter unreachable", 503)
   }
 
-  const geminiMs = Date.now() - started
-  metrics.observe("llm_call_duration", geminiMs, {op: opts.operation})
+  const llmMs = Date.now() - started
+  metrics.observe("llm_call_duration", llmMs, {op: opts.operation, idle: bucket})
 
   if (!response.ok) {
     metrics.increment("llm_calls_total", {op: opts.operation, outcome: "upstream_error"})
     metrics.increment("llm_upstream_status_total", {op: opts.operation, status: response.status})
     call.error("llm upstream rejected", {
       upstreamStatus: response.status,
-      geminiMs,
+      llmMs,
       keyFingerprint: apiKeyFingerprint(),
       retryAfter: response.headers.get("retry-after") ?? undefined,
     })
@@ -237,7 +258,8 @@ export async function generateJson(opts: GeminiCallOptions): Promise<GeminiCallR
   }
   metrics.increment("llm_calls_total", {op: opts.operation, outcome: "ok"})
   call.info("llm ok", {
-    geminiMs,
+    llmMs,
+    llmIdleMs,
     parseMs,
     responseChars: text.length,
     finishReason,
@@ -245,5 +267,5 @@ export async function generateJson(opts: GeminiCallOptions): Promise<GeminiCallR
     outputTokens: usage.outputTokens,
   })
 
-  return {text, geminiMs, parseMs, model, finishReason, usage, truncated}
+  return {text, llmMs, parseMs, model, finishReason, usage, truncated, llmIdleMs}
 }

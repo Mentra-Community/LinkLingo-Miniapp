@@ -2,7 +2,7 @@ import {MentraAuthError, createMentraAuth, type HonoLikeContext} from "@mentra/a
 
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
-import {noteAuthenticatedUser} from "./observability"
+import {noteAuthDuration, noteAuthenticatedUser} from "./observability"
 
 const log = createLogger("auth")
 
@@ -74,9 +74,11 @@ export function mentraAuthMiddleware() {
         // Which keyring accepted the token is the single most useful auth fact:
         // a prod token arriving at a dev-configured backend looks identical to
         // a forged one until you know this.
+        const verifyMs = Date.now() - started
         metrics.increment("auth_results_total", {outcome: "ok"})
         metrics.increment("auth_keyring_hits_total", {keyring: label})
-        metrics.observe("auth_verify_duration", Date.now() - started)
+        metrics.observe("auth_verify_duration", verifyMs)
+        noteAuthDuration(verifyMs)
         noteAuthenticatedUser(verified.mentraUserId)
         log.debug("token verified", {
           keyring: label,

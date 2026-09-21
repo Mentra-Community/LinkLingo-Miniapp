@@ -17,6 +17,9 @@
  *   bun run review:doppler -- --transcripts          # last 24h of heard speech
  *   bun run review:doppler -- --transcripts --save backend/data/transcripts.jsonl
  *   bun run review:doppler -- --feedback             # problems flagged from the WebView + analyst verdicts
+ *   bun run review:doppler -- --latency              # per-phase latency, grouped by client/server build
+ *   bun run review:doppler -- --latency --by-session
+ *   bun run review:doppler -- --latency --baseline backend/data/review-baseline.jsonl
  */
 
 import {appendFileSync, existsSync, readFileSync} from "node:fs"
@@ -63,6 +66,9 @@ const save = arg("save")
 const limit = arg("limit", "2000")!
 const wantTranscripts = flag("transcripts")
 const wantFeedback = flag("feedback")
+const wantLatency = flag("latency")
+const bySession = flag("by-session")
+const baselineFile = arg("baseline")
 
 async function fetchFromReview<T>(path: string, query: URLSearchParams): Promise<T[]> {
   const token = process.env.LINKLINGO_REVIEW_TOKEN
@@ -142,6 +148,221 @@ function archive(path: string, entries: ReviewEntry[]): number {
   const fresh = entries.filter((e) => !known.has(e.id))
   if (fresh.length > 0) appendFileSync(path, fresh.map((e) => JSON.stringify(e)).join("\n") + "\n")
   return fresh.length
+}
+
+// ---- Latency view -----------------------------------------------------------
+
+/**
+ * A latency figure is only worth acting on if enough calls went into it, so
+ * `n` travels with every band rather than being quoted once per table.
+ */
+interface Band {
+  n: number
+  p50: number
+  p95: number
+}
+
+function bandOf(values: Array<number | undefined>): Band {
+  const sorted = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v)).sort((a, b) => a - b)
+  if (sorted.length === 0) return {n: 0, p50: 0, p95: 0}
+  const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!
+  return {n: sorted.length, p50: at(0.5), p95: at(0.95)}
+}
+
+function renderBand(label: string, band: Band): string {
+  if (band.n === 0) return `  ${label.padEnd(18)}      -       -   (n=0)`
+  return `  ${label.padEnd(18)}${String(band.p50).padStart(6)}${String(band.p95).padStart(8)}   (n=${band.n})`
+}
+
+/** Buckets are computed here, not at write time, so the boundaries stay changeable. */
+const IDLE_BUCKETS: Array<{label: string; max: number}> = [
+  {label: "<30s", max: 30_000},
+  {label: "30s-2m", max: 120_000},
+  {label: ">2m", max: Number.POSITIVE_INFINITY},
+]
+
+function byIdle(
+  rows: ReviewEntry[],
+  idleOf: (e: ReviewEntry) => number | undefined,
+  valueOf: (e: ReviewEntry) => number | undefined,
+): string {
+  const parts: string[] = []
+  for (const bucket of IDLE_BUCKETS) {
+    const lower = IDLE_BUCKETS[IDLE_BUCKETS.indexOf(bucket) - 1]?.max ?? 0
+    const band = bandOf(
+      rows
+        .filter((e) => {
+          const idle = idleOf(e)
+          return idle != null && idle >= lower && idle < bucket.max
+        })
+        .map(valueOf),
+    )
+    if (band.n > 0) parts.push(`${bucket.label} n=${band.n} ${band.p50}/${band.p95}`)
+  }
+  return parts.join("   ") || "(no idle data)"
+}
+
+function tally(values: Array<string | undefined>): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const v of values) {
+    if (v == null) continue
+    out[v] = (out[v] ?? 0) + 1
+  }
+  return out
+}
+
+function renderTally(counts: Record<string, number>): string {
+  return (
+    Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `${k} ${n}`)
+      .join("  ") || "(none)"
+  )
+}
+
+interface GroupSummary {
+  key: string
+  n: number
+  triggerToRender: Band
+  queue: Band
+  phoneRtt: Band
+  server: Band
+  model: Band
+  render: Band
+  auth: Band
+  select: Band
+}
+
+function summariseGroup(key: string, rows: ReviewEntry[]): GroupSummary {
+  return {
+    key,
+    n: rows.length,
+    triggerToRender: bandOf(rows.map((e) => e.triggerToRenderMs)),
+    queue: bandOf(rows.map((e) => e.queueWaitMs)),
+    phoneRtt: bandOf(rows.map((e) => e.clientRoundTripMs)),
+    server: bandOf(rows.map((e) => e.totalMs)),
+    model: bandOf(rows.map((e) => e.llmMs ?? e.geminiMs)),
+    render: bandOf(rows.map((e) => e.renderMs)),
+    auth: bandOf(rows.map((e) => e.authMs)),
+    select: bandOf(rows.map((e) => e.selectMs)),
+  }
+}
+
+function groupKey(e: ReviewEntry): string {
+  const client = `${e.clientVersion ?? "?"}/${e.clientBuildId ?? "?"}`
+  return `client ${client} x server ${e.serverBuildId ?? "?"} x ${e.model}`
+}
+
+function printGroup(rows: ReviewEntry[], key: string, bySession: boolean): GroupSummary {
+  const summary = summariseGroup(key, rows)
+  const sessions = new Set(rows.map((e) => e.sessionId).filter(Boolean))
+  const span = rows.length > 1 ? rows[rows.length - 1]!.at - rows[0]!.at : 0
+  const perMinute = span > 0 ? (rows.length / (span / 60_000)).toFixed(1) : "n/a"
+
+  console.log("")
+  console.log(`${key}   n=${rows.length}`)
+  console.log("                      p50     p95")
+  console.log(renderBand("trigger->render", summary.triggerToRender))
+  console.log(renderBand("queue", summary.queue))
+  console.log(renderBand("phone RTT", summary.phoneRtt))
+  console.log(renderBand("server", summary.server))
+  console.log(renderBand("model", summary.model))
+  console.log(renderBand("render", summary.render))
+  if (summary.auth.n > 0) console.log(renderBand("auth", summary.auth))
+  if (summary.select.n > 0) console.log(renderBand("candidate select", summary.select))
+
+  const reasons = tally(rows.map((e) => e.queueReason))
+  if (Object.keys(reasons).length > 0) console.log(`  queue reason:    ${renderTally(reasons)}`)
+  const triggers = tally(rows.map((e) => e.trigger))
+  if (Object.keys(triggers).length > 0) console.log(`  trigger:         ${renderTally(triggers)}`)
+
+  console.log(`  phone RTT/idle:  ${byIdle(rows, (e) => e.networkIdleMs, (e) => e.clientRoundTripMs)}`)
+  console.log(`  model/llm idle:  ${byIdle(rows, (e) => e.llmIdleMs, (e) => e.llmMs ?? e.geminiMs)}`)
+  console.log(`  outcomes:        ${renderTally(tally(rows.map((e) => e.outcome)))}`)
+  console.log(
+    `  volume:          ${sessions.size || "?"} sessions, ${perMinute} req/min over ${Math.round(span / 1000)}s`,
+  )
+
+  if (bySession && sessions.size > 1) {
+    for (const session of sessions) {
+      const mine = rows.filter((e) => e.sessionId === session)
+      const band = bandOf(mine.map((e) => e.triggerToRenderMs))
+      const cold = mine.find((e) => e.requestSeq === 1)
+      console.log(
+        `    session ${session}: n=${mine.length} trigger->render ${band.p50}/${band.p95}` +
+          (cold?.clientRoundTripMs != null ? `  first RTT ${cold.clientRoundTripMs}ms` : ""),
+      )
+    }
+  }
+  return summary
+}
+
+/** Shadow results live on the transcript tape, keyed by the utterance they describe. */
+function printShadow(transcripts: TranscriptEntry[]): void {
+  const withShadow = transcripts.filter((t) => t.shadowInterim?.length)
+  const interimCapable = transcripts.filter((t) => t.disposition !== "skipped_language")
+  console.log("")
+  console.log("=".repeat(72))
+  if (withShadow.length === 0) {
+    console.log("shadow interim: no observations (phones predate 1.0.16, or no interims were seen)")
+    return
+  }
+  const byClient = new Map<string, TranscriptEntry[]>()
+  for (const t of withShadow) {
+    const key = `${t.clientVersion ?? "?"}/${t.clientBuildId ?? "?"}`
+    byClient.set(key, [...(byClient.get(key) ?? []), t])
+  }
+  for (const [client, rows] of byClient) {
+    console.log(
+      `shadow interim (client ${client}) — ${rows.length} of ${interimCapable.length} utterances produced a trigger`,
+    )
+    for (const variant of ["stable300", "growth6"] as const) {
+      const hits = rows.flatMap((t) => (t.shadowInterim ?? []).filter((o) => o.variant === variant))
+      if (hits.length === 0) {
+        console.log(`  ${variant.padEnd(10)} never fired`)
+        continue
+      }
+      const band = bandOf(hits.map((o) => o.leadMs))
+      const dupes = hits.filter((o) => o.wouldDuplicate).length
+      const share = Math.round((100 * hits.length) / Math.max(1, interimCapable.length))
+      console.log(
+        `  ${variant.padEnd(10)} fired ${String(hits.length).padStart(4)} (${share}%)  ` +
+          `lead p50 ${band.p50}ms p95 ${band.p95}ms  ` +
+          `would-duplicate ${dupes} (${Math.round((100 * dupes) / hits.length)}%)`,
+      )
+    }
+  }
+  console.log("Read: a high fire rate with a long lead and few duplicates is what makes Phase 1 worth shipping.")
+}
+
+function printLatencyDelta(current: ReviewEntry[], baselinePath: string): void {
+  const baseline = readArchive(baselinePath)
+  if (baseline.length === 0) {
+    console.log(`\nno baseline entries in ${baselinePath}`)
+    return
+  }
+  const metrics: Array<[string, (e: ReviewEntry) => number | undefined]> = [
+    ["trigger->render", (e) => e.triggerToRenderMs],
+    ["queue", (e) => e.queueWaitMs],
+    ["phone RTT", (e) => e.clientRoundTripMs],
+    ["server", (e) => e.totalMs],
+    ["model", (e) => e.llmMs ?? e.geminiMs],
+  ]
+  console.log("")
+  console.log("=".repeat(72))
+  console.log(`delta vs ${baselinePath} (n=${baseline.length} baseline, n=${current.length} current)`)
+  console.log("                    base p50   now p50     delta")
+  for (const [label, pick] of metrics) {
+    const before = bandOf(baseline.map(pick))
+    const after = bandOf(current.map(pick))
+    if (before.n === 0 && after.n === 0) continue
+    const delta = after.p50 - before.p50
+    const sign = delta > 0 ? "+" : ""
+    console.log(
+      `  ${label.padEnd(18)}${String(before.p50).padStart(8)}${String(after.p50).padStart(10)}` +
+        `${(sign + delta).padStart(10)}ms  (n ${before.n} -> ${after.n})`,
+    )
+  }
 }
 
 if (wantFeedback) {
@@ -243,6 +464,48 @@ if (file) {
 }
 
 entries.sort((a, b) => a.at - b.at)
+
+if (wantLatency) {
+  const source = file ? `archive ${file}` : url
+  if (entries.length === 0) {
+    console.log(`no entries in ${source} since ${since}`)
+    process.exit(0)
+  }
+  const glossOnly = entries.filter((e) => e.op === "gloss")
+  const groups = new Map<string, ReviewEntry[]>()
+  for (const entry of glossOnly) {
+    const key = groupKey(entry)
+    groups.set(key, [...(groups.get(key) ?? []), entry])
+  }
+
+  console.log("=".repeat(72))
+  console.log(`latency from ${source} since ${since} — ${glossOnly.length} gloss calls`)
+  console.log("A p95 over fewer than 30 calls is printed but should not be acted on.")
+  for (const [key, rows] of [...groups.entries()].sort((a, b) => b[1].length - a[1].length)) {
+    printGroup(rows, key, bySession)
+  }
+
+  const missing = glossOnly.filter((e) => e.triggerToRenderMs == null).length
+  if (missing > 0) {
+    console.log("")
+    console.log(
+      `${missing}/${glossOnly.length} calls have no trigger->render: the phone reports a call's timings on ` +
+        `the following request, so the newest call in each session is always pending.`,
+    )
+  }
+
+  // Shadow observations ride the transcript tape, so they need a second fetch.
+  if (!file) {
+    try {
+      printShadow(await fetchTranscripts())
+    } catch {
+      console.log("\nshadow interim: transcripts unavailable")
+    }
+  }
+
+  if (baselineFile) printLatencyDelta(glossOnly, baselineFile)
+  process.exit(0)
+}
 
 if (flag("problems")) {
   entries = entries.filter(

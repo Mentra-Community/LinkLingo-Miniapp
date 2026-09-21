@@ -173,7 +173,7 @@ export class UpgradeService {
         reason: reject,
         word: word || undefined,
         wordRank: wordRank ?? undefined,
-        geminiMs: result.geminiMs,
+        llmMs: result.llmMs,
         totalMs: Date.now() - started,
       })
       review({
@@ -181,13 +181,16 @@ export class UpgradeService {
         raw: result.text,
         proposed: [{word, translation: meaning}],
         rejected: [{word: word || "(blank)", reason: reject}],
-        geminiMs: result.geminiMs,
+        llmMs: result.llmMs,
+        geminiMs: result.llmMs,
+        llmIdleMs: result.llmIdleMs,
         totalMs: Date.now() - started,
       })
       return {
         profiling: {
           totalMs: Date.now() - started,
-          geminiMs: result.geminiMs,
+          llmMs: result.llmMs,
+          geminiMs: result.llmMs,
           parseMs: result.parseMs,
           model: result.model,
           candidateCount: 0,
@@ -209,14 +212,16 @@ export class UpgradeService {
       word,
       wordRank: wordRank ?? undefined,
       totalMs,
-      geminiMs: result.geminiMs,
+      llmMs: result.llmMs,
       totalTokens: result.usage.totalTokens,
     })
     review({
       outcome: "suggested",
       raw: result.text,
       accepted: [{word, translation: meaning}],
-      geminiMs: result.geminiMs,
+      llmMs: result.llmMs,
+      geminiMs: result.llmMs,
+      llmIdleMs: result.llmIdleMs,
       totalMs,
     })
 
@@ -225,7 +230,8 @@ export class UpgradeService {
       meaning,
       profiling: {
         totalMs,
-        geminiMs: result.geminiMs,
+        llmMs: result.llmMs,
+        geminiMs: result.llmMs,
         parseMs: result.parseMs,
         model: result.model,
         candidateCount: 0,

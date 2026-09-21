@@ -17,7 +17,7 @@ mock.module("./gemini", () => ({
     calls.push(opts)
     return {
       text: reply,
-      geminiMs: 1,
+      llmMs: 1,
       parseMs: 0,
       model: "test-model",
       truncated: false,

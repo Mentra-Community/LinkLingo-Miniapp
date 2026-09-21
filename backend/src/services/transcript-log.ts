@@ -13,7 +13,7 @@ import {appendFileSync} from "node:fs"
 import {currentRequestContext} from "../observability/context"
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
-import type {TranscriptDisposition, TranscriptRequest} from "../shared-types"
+import type {ShadowInterimObservation, TranscriptDisposition, TranscriptRequest} from "../shared-types"
 import {candidateWords, knownRankFor} from "./frequency"
 import {digest} from "./review-log"
 
@@ -37,6 +37,17 @@ export interface TranscriptEntry {
   disposition: TranscriptDisposition
   /** Words the frequency filter would have sent to the model, rarest first. */
   wouldGloss: string[]
+  /** Correlates an interim with the final it settled into. */
+  utteranceId?: string
+  /**
+   * How much earlier each candidate Phase 1 interim rule would have glossed
+   * this utterance. Lives on the transcript tape rather than the gloss tape
+   * because most utterances never produce a gloss at all.
+   */
+  shadowInterim?: ShadowInterimObservation[]
+  /** Build that produced the observation, so thresholds are comparable across releases. */
+  clientVersion?: string
+  clientBuildId?: string
 }
 
 export interface TranscriptQuery {
@@ -86,10 +97,18 @@ export class TranscriptLog {
       mode: input.mode,
       disposition: input.disposition,
       wouldGloss,
+      utteranceId: input.utteranceId,
+      shadowInterim: input.shadowInterim?.length ? input.shadowInterim : undefined,
+      clientVersion: input.clientVersion,
+      clientBuildId: input.clientBuildId,
     }
     this.entries.push(entry)
     this.prune(now)
     metrics.increment("transcript_entries_total", {disposition: entry.disposition})
+    for (const observation of input.shadowInterim ?? []) {
+      metrics.increment("shadow_interim_total", {variant: observation.variant})
+      metrics.observe("shadow_interim_lead", observation.leadMs, {variant: observation.variant})
+    }
     if (this.file) this.append(entry)
     return entry
   }
@@ -160,6 +179,12 @@ export function formatTranscriptEntry(entry: TranscriptEntry): string {
     `  heard:      ${entry.text || "(empty)"}`,
     `  would gloss: ${entry.wouldGloss.join(", ") || "(none)"}`,
   ]
+  if (entry.shadowInterim?.length) {
+    const shadow = entry.shadowInterim
+      .map((o) => `${o.variant} +${o.leadMs}ms${o.wouldDuplicate ? " (dup)" : ""}`)
+      .join(", ")
+    lines.push(`  shadow:     ${shadow}`)
+  }
   return lines.join("\n")
 }
 

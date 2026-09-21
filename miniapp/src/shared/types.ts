@@ -56,11 +56,74 @@ export interface TranscriptLine {
 
 export interface LinkLingoProfiling {
   totalMs?: number
+  /** @deprecated Renamed to `llmMs`; kept so a 1.0.15 backend still renders. */
   geminiMs?: number
+  llmMs?: number
   model?: string
   clientRoundTripMs?: number
   /** Vocabulary size the backend assumed for the current proficiency setting. */
   knownRank?: number
+  /** Client-minted id; lets the WebView row be matched to a server tape entry. */
+  requestId?: string
+}
+
+/** What made a gloss eligible. 1.0.16 only ever sends `final`; interims are shadow-only. */
+export type GlossTrigger = "final" | "interim"
+
+/**
+ * Why a gloss waited between becoming eligible and being sent. Recorded where
+ * the wait was imposed, so a large `queueWaitMs` can be blamed on the right
+ * mechanism instead of guessed at.
+ */
+export type GlossQueueReason = "none" | "cooldown" | "in_flight" | "coalesced"
+
+/** Timings for the gloss being sent right now. */
+export interface GlossClientCurrent {
+  requestId: string
+  requestSeq: number
+  utteranceId?: string
+  trigger: GlossTrigger
+  /** First moment this transcript could have glossed, before any waiting. */
+  eligibleAt: number
+  queueReason: GlossQueueReason
+  queueWaitMs: number
+  /** Since any previous request to the backend, so cold TLS is visible. */
+  networkIdleMs?: number
+}
+
+/**
+ * A complete, self-identifying snapshot of the *previous* gloss. A client only
+ * learns its round trip after the response lands, so the numbers ride along
+ * with the next request; carrying the id with them is what stops request N's
+ * idle window being correlated with request N-1's round trip.
+ */
+export interface GlossClientPrevious {
+  requestId: string
+  roundTripMs: number
+  renderMs?: number
+  triggerToRenderMs?: number
+  outcome: "ok" | "error"
+}
+
+export interface GlossClientTelemetry {
+  version: string
+  buildId: string
+  sessionId: string
+  current: GlossClientCurrent
+  previousRequestMetrics?: GlossClientPrevious
+}
+
+/** One variant of the proposed interim trigger, evaluated without sending anything. */
+export interface ShadowInterimObservation {
+  utteranceId: string
+  /** Which candidate rule fired: stability timer or growth threshold. */
+  variant: "stable300" | "growth6"
+  /** How much earlier than the final this variant would have glossed. */
+  leadMs: number
+  /** True when the shadow context equalled the last real gloss, so the call would have been wasted. */
+  wouldDuplicate: boolean
+  charsAtTrigger: number
+  charsAtFinal: number
 }
 
 /**

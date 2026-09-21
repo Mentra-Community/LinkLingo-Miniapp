@@ -12,6 +12,8 @@ export interface RequestContext {
   requestId: string
   route?: string
   userId?: string
+  /** Token verification cost, recorded by the auth middleware for the review tape. */
+  authMs?: number
 }
 
 const storage = new AsyncLocalStorage<RequestContext>()
