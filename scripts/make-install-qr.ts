@@ -44,9 +44,13 @@ const common = `url=${encodeURIComponent(base)}&package=${encodeURIComponent(man
 const devUrl = `miniapp://dev?${common}`
 const releaseUrl = `miniapp://release?${common}&version=${encodeURIComponent(manifest.version)}`
 
+// The phone's live-dev probe aborts GET <base>/miniapp.json after 1.5s.
+// This hosted origin's TTFB is above that, so miniapp://dev shows
+// "Dev server offline" even when the server is up. miniapp://release
+// downloads bundle.zip without that deadline — that is the QR to scan.
 const targets = [
-  {payload: devUrl, file: "linklingo-install-qr.png", label: "auto-updating install"},
-  {payload: releaseUrl, file: "linklingo-release-qr.png", label: `one-shot install (v${manifest.version})`},
+  {payload: releaseUrl, file: "linklingo-install-qr.png", label: `private install (v${manifest.version})`},
+  {payload: devUrl, file: "linklingo-release-qr.png", label: "live-dev (fails if TTFB > 1.5s)"},
 ]
 
 for (const {payload, file, label} of targets) {
@@ -73,20 +77,24 @@ await Bun.write(
   <body>
     <h1>${manifest.name} <small>${manifest.version}</small></h1>
     <p>
-      Mentra App → Settings → Developer settings → Mini App Development → Scan Mini App QR Code.
-      Both QRs install from <code>${base}</code> — no laptop, no shared Wi-Fi.
+      Scan <strong>linklingo-install-qr.png</strong> from Mentra
+      <code>Settings → Miniapp Developer Settings → Scan Mini App QR</code>.
+      That payload is <code>miniapp://release</code> — it downloads the zip.
+      Do not scan <code>https://apps.mentra.glass/apps/${manifest.packageName}</code>
+      (old Cloud app) and do not use the live-dev QR unless the origin answers
+      <code>/miniapp.json</code> in under 1.5s.
     </p>
     <section>
-      <h2>Auto-updating install</h2>
-      <p>Runs the latest deployed build on every launch; keeps an offline copy. Scan this one.</p>
-      <img src="linklingo-install-qr.png" alt="Auto-updating install QR" />
-      <p><code>${devUrl}</code></p>
+      <h2>Install this one</h2>
+      <p>Downloads v${manifest.version} onto the phone. No 1.5s live probe.</p>
+      <img src="linklingo-install-qr.png" alt="Release install QR" />
+      <p><code>${releaseUrl}</code></p>
     </section>
     <section>
-      <h2>One-shot install</h2>
-      <p>Downloads v${manifest.version} once and never checks again. Rescan after a version bump.</p>
-      <img src="linklingo-release-qr.png" alt="One-shot install QR" />
-      <p><code>${releaseUrl}</code></p>
+      <h2>Live-dev (usually times out on this host)</h2>
+      <p>Mentra aborts the manifest fetch at 1.5s. This origin is slower, so you get “Dev server offline”.</p>
+      <img src="linklingo-release-qr.png" alt="Live-dev QR" />
+      <p><code>${devUrl}</code></p>
     </section>
   </body>
 </html>
