@@ -10,11 +10,13 @@ import type {
   ShadowInterimObservation,
   TranscriptDisposition,
 } from "../shared/types"
-import {inputLanguage, outputLanguage, wordRowsFor} from "../shared/types"
+import {inputLanguage, knownRankFor, outputLanguage, wordRowsFor} from "../shared/types"
 import {preconnect, requestGloss, requestUpgrade} from "./backend"
 import {glossTelemetry} from "./glossTelemetry"
 import {createLogger, diagnostics} from "./observability"
+import {hasRareToken, rareTokens} from "./prefilter"
 import {ShadowInterimDetector} from "./shadowInterim"
+import type {TranslationCache} from "./translationCache"
 import {hasSentenceEnd, stripIncompleteLastWord, type TranscriptBuffer} from "./TranscriptBuffer"
 
 const log = createLogger("engine")
@@ -96,6 +98,7 @@ export class GlossEngine {
     private readonly session: MiniappSession,
     private readonly buffer: TranscriptBuffer,
     private readonly callbacks: GlossEngineCallbacks,
+    private readonly cache: TranslationCache | null = null,
   ) {}
 
   consider(
@@ -211,6 +214,31 @@ export class GlossEngine {
   }
 
   /**
+   * Rare words in this context that already have a gloss on disk. Capped at
+   * the HUD budget so a long sentence cannot fill every row from cache and
+   * leave no space for whatever the model finds.
+   */
+  private cachedWordsFor(context: string, settings: LinkLingoSettings): GlossedWord[] {
+    if (!this.cache) return []
+    const input = inputLanguage(settings)
+    const output = outputLanguage(settings)
+    const rare = rareTokens(context, input, knownRankFor(settings.proficiency), output, this.recent.keys())
+    if (!rare || rare.length === 0) return []
+
+    const budget = Math.max(1, wordRowsFor(settings.mode) - 1)
+    const out: GlossedWord[] = []
+    const now = Date.now()
+    for (const token of rare) {
+      if (out.length >= budget) break
+      const last = this.recent.get(bare(token))
+      if (last && now - last < WORD_DEDUP_MS) continue
+      const hit = this.cache.get(token, input, output)
+      if (hit) out.push(hit)
+    }
+    return out
+  }
+
+  /**
    * How much earlier than the ASR final the last interim-triggered gloss ran.
    * Consumed once, by the transcript report for that utterance.
    */
@@ -286,6 +314,21 @@ export class GlossEngine {
       diagnostics.increment("engine.gloss_skipped.duplicate")
       return "skipped_duplicate"
     }
+    // Decide locally before spending a round trip to be told there is nothing
+    // to gloss, which for a fluent learner was most calls. Errs toward
+    // calling: it only suppresses when every token is inside the vocabulary.
+    if (
+      !hasRareToken(
+        context,
+        inputLanguage(settings),
+        knownRankFor(settings.proficiency),
+        outputLanguage(settings),
+        this.recent.keys(),
+      )
+    ) {
+      diagnostics.increment("engine.gloss_skipped.no_candidates")
+      return "skipped_no_candidates"
+    }
     if (this.glossInFlight) {
       // Coalesced rather than dropped: the newest context replaces any older
       // pending one and runs as soon as the in-flight call returns.
@@ -317,6 +360,16 @@ export class GlossEngine {
     this.glossInFlight = true
     this.callbacks.onProcessing(true)
     this.lastGlossAt = Date.now()
+    // Anything already glossed this session goes up immediately rather than
+    // waiting a round trip to be told the same thing. The request still runs:
+    // the model adds whatever else is in the utterance, and the cached words
+    // are passed as `recent` so it does not spend a pick repeating them.
+    const cached = this.cachedWordsFor(context, settings)
+    if (cached.length > 0) {
+      diagnostics.increment("cache.hits", cached.length)
+      for (const word of cached) this.recent.set(bare(word.word), Date.now())
+      this.callbacks.onWords(cached)
+    }
     const result = await requestGloss(
       this.session,
       {
@@ -359,6 +412,9 @@ export class GlossEngine {
 
     if (deduped > 0) diagnostics.increment("engine.words_deduped", deduped)
     diagnostics.increment("engine.words_shown", accepted.length)
+    // Remember what the model produced so the next occurrence of these words
+    // renders without waiting.
+    this.cache?.remember(accepted, inputLanguage(settings), outputLanguage(settings))
     log.info("gloss applied", {
       returned: result.data.words.length,
       shown: accepted.length,

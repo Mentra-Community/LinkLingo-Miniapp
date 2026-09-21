@@ -199,6 +199,49 @@ Diagnostics panel so one installed build can be compared against the baseline:
   costs about as much as the gloss itself, and it is otherwise paid again after
   every pause.
 
+Connection reuse was verified rather than assumed: Bun sends no
+`Connection: close`, a second request to the local server reports
+`num_connects=0`, and the deployed origin answers `Connection: keep-alive`
+through the Porter ingress. The 25 s heartbeat is chosen to stay under that
+ingress's idle timeout.
+
+The backend keeps its own upstream warm the same way: a `HEAD` to OpenRouter
+every 45 s, but only while a gloss happened in the last 10 minutes, so an idle
+pod generates no traffic. Whether it earns its keep is answerable from the
+`model/llm idle` split in `review:latency` — the cold bucket should collapse
+toward the warm one under the new `serverBuildId`.
+
+## Work the phone does instead of a round trip
+
+Two things now happen on-device, both of which used to cost a call.
+
+**The prefilter** (`hasRareToken`) decides locally whether anything in the
+utterance is above the learner's vocabulary, using the same frequency lists the
+backend ranks with. When nothing is, no request goes out and the transcript is
+recorded as `skipped_no_candidates`. For a fluent learner that was most calls.
+
+The contract is one-directional and enforced by
+[prefilter-parity.test.ts](backend/src/services/prefilter-parity.test.ts):
+whenever the backend would find candidates, the phone must still call. The
+reverse is fine. A gloss lost to an over-strict prefilter would be invisible —
+nothing in the tape shows a call that was never made — so that test is what
+makes this safe to ship.
+
+Regenerate the lists with `bun run known-words:build` after changing
+`backend/data/freq`. Chinese ships the full 50k list because the phone segments
+by matching against it and a missing word decomposes into its characters; a
+truncated list silently lost 深远. English ships only the top 15k, since
+whitespace tokenizing does not consult the list. The two cost about 300 KB
+gzipped and take the bundle from roughly 330 KB to 630 KB, which is the real
+price of this optimisation.
+
+**The translation cache** keeps the last 1500 glosses in `session.storage`,
+keyed on the bare word plus the language pair. A repeated rare word renders
+immediately instead of after a round trip. The request still runs, with the
+cached words passed as `recentWords` so the model spends its picks on
+something new — the cache shortens the wait rather than replacing the model.
+`cache.hits` in the diagnostics panel says whether it is earning its place.
+
 `buildId` on `/healthz` and `serverBuildId` on every entry exist so a
 backend-only change is visible against an unchanged client version. The CI
 workflow stamps the commit into `build-id.txt`; the committed copy says `dev`,

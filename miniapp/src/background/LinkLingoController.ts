@@ -17,6 +17,7 @@ import {toLocale} from "./locales"
 import {createLogger, diagnostics, logLevel} from "./observability"
 import {loadSettings, saveSettings} from "./settings"
 import {TranscriptBuffer} from "./TranscriptBuffer"
+import {TranslationCache} from "./translationCache"
 
 const log = createLogger("controller")
 
@@ -47,6 +48,7 @@ export class LinkLingoController {
   private uiOpen = false
   private readonly buffer = new TranscriptBuffer()
   private readonly display: DisplayRenderer
+  private readonly cache: TranslationCache
   private readonly engine: GlossEngine
   private readonly ui: {send: Send}
 
@@ -55,6 +57,7 @@ export class LinkLingoController {
       send: (channel, payload) => this.session.ui.send(channel, payload),
     }
     this.display = new DisplayRenderer(session)
+    this.cache = new TranslationCache(session)
     this.engine = new GlossEngine(session, this.buffer, {
       onWords: (incoming) => {
         if (incoming.length > 0) {
@@ -81,13 +84,15 @@ export class LinkLingoController {
         this.processing = processing
         this.ui.send("link:processing", {processing})
       },
-    })
+    }, this.cache)
   }
 
   async start(): Promise<void> {
     const started = Date.now()
     log.info("session starting", {logLevel})
     this.settings = await loadSettings(this.session)
+    // Read before the first utterance so an early repeat is already a hit.
+    await this.cache.load()
     log.info("settings loaded", {
       source: this.settings.sourceLanguage,
       target: this.settings.targetLanguage,

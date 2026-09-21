@@ -66,16 +66,27 @@ describe("GlossEngine interim triggering", () => {
 
   test("a shorter interim waits until it stops being revised", async () => {
     const {say} = harness()
-    say("我们今天", false)
+    // Short enough to miss the growth threshold, but carrying a rare word so
+    // the on-device prefilter does not suppress the call outright.
+    say("影响深远", false)
     await Bun.sleep(120)
-    // Still under the growth threshold, and the revision restarts the clock.
-    say("我们今天下", false)
+    // The revision restarts the clock.
+    say("影响很深远", false)
     await Bun.sleep(120)
     expect(calls).toHaveLength(0)
 
     await Bun.sleep(280)
     expect(calls).toHaveLength(1)
     expect(calls[0]!.attempt.trigger).toBe("interim")
+  })
+
+  test("an utterance with nothing above the learner's vocabulary never leaves the phone", async () => {
+    const {say} = harness()
+    // Every word here is inside a beginner's vocabulary, so the round trip
+    // could only ever have come back empty.
+    expect(say("我们去吃饭吧", true)).toBe("skipped_no_candidates")
+    await Bun.sleep(50)
+    expect(calls).toHaveLength(0)
   })
 
   test("the final after an interim gloss costs no second call", async () => {

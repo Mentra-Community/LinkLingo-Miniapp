@@ -3,6 +3,7 @@ import {serverBuildId} from "./observability/build-id"
 import {createLogger, logFormat, logLevel} from "./observability/logger"
 import {metrics} from "./observability/metrics"
 import {apiKeyFingerprint, allowMockLlm, resolveApiKeySource, resolveModel} from "./services/gemini"
+import {startLlmKeepalive, stopLlmKeepalive} from "./services/llm-keepalive"
 import {allowUnauth} from "./api/auth"
 
 const log = createLogger("server")
@@ -45,12 +46,14 @@ export async function startBackend(opts: StartBackendOptions = {}): Promise<Back
   const boundPort = server.port!
 
   logStartupConfig(boundPort)
+  startLlmKeepalive()
   log.info("listening", {url: `http://localhost:${boundPort}`})
 
   return {
     port: boundPort,
     url: `http://localhost:${boundPort}`,
     async stop() {
+      stopLlmKeepalive()
       server.stop()
     },
   }

@@ -108,6 +108,12 @@ export type TranscriptDisposition =
   | "skipped_short"
   | "skipped_duplicate"
   | "skipped_cooldown"
+  /**
+   * The phone's own frequency check found nothing above the learner's
+   * vocabulary, so no request was made. These replace the `no_words` gloss
+   * calls that previously paid a round trip to learn the same thing.
+   */
+  | "skipped_no_candidates"
   | "translation_mode"
   | "heard"
 

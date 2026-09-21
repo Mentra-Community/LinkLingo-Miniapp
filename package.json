@@ -26,6 +26,7 @@
     "qr": "bun scripts/make-install-qr.ts",
     "publish:draft": "MENTRA_PUBLIC_LINKLINGO_BACKEND_URL=https://linklingo-miniapp-dev.mentraglass.com bun scripts/publish-draft.ts",
     "freq:build": "bun backend/scripts/build-frequency-data.ts",
+    "known-words:build": "bun backend/scripts/build-known-words.ts",
     "eval:gloss": "LOG_LEVEL=silent bun backend/scripts/eval-gloss.ts",
     "eval:gloss:doppler": "doppler run --project linklingo --config dev --preserve-env -- bun run eval:gloss",
     "bench:models": "LOG_LEVEL=silent bun backend/scripts/bench-gloss-models.ts",

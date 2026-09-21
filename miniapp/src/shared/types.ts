@@ -203,5 +203,7 @@ export type TranscriptDisposition =
   | "skipped_short"
   | "skipped_duplicate"
   | "skipped_cooldown"
+  /** The phone decided locally that nothing here is above the learner's vocabulary. */
+  | "skipped_no_candidates"
   | "translation_mode"
   | "heard"

@@ -108,6 +108,15 @@ export function allowMockLlm(): boolean {
 /** Wall clock of the previous upstream call, for the cold/warm split. */
 let lastLlmCallAt: number | null = null
 
+/** Drives the keep-warm loop, which only runs while a conversation is active. */
+export function lastLlmCallTimestamp(): number | null {
+  return lastLlmCallAt
+}
+
+export function openRouterBaseUrl(): string {
+  return (process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1").replace(/\/+$/, "")
+}
+
 /** Bounded labels for metrics; the review tape keeps the exact milliseconds. */
 function idleBucket(idleMs: number | undefined): string {
   if (idleMs == null) return "first"
@@ -177,7 +186,7 @@ export async function generateJson(opts: GeminiCallOptions): Promise<GeminiCallR
   let response: Response
   try {
     response = await fetch(
-      `${(process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1").replace(/\/+$/, "")}/chat/completions`,
+      `${openRouterBaseUrl()}/chat/completions`,
       {
         method: "POST",
         headers: {Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "X-Title": "Mentra LinkLingo"},
