@@ -278,6 +278,13 @@ const problems = rejects.filter((r) => PROMPT_PROBLEMS.has(r.reason))
 const prompts = [...new Set(entries.map((e) => `${e.op}:${e.promptVersion}`))]
 const shown = entries.reduce((n, e) => n + e.accepted.length, 0)
 const latencies = entries.map((e) => e.totalMs).sort((a, b) => a - b)
+const modelLatencies = entries.map((e) => e.geminiMs).filter((n): n is number => n != null).sort((a, b) => a - b)
+const phoneLatencies = entries
+  .map((e) => e.clientRoundTripMs)
+  .filter((n): n is number => n != null)
+  .sort((a, b) => a - b)
+const band = (sorted: number[]) =>
+  `p50=${sorted[Math.floor(sorted.length * 0.5)]}ms p95=${sorted[Math.floor(sorted.length * 0.95)]}ms max=${sorted[sorted.length - 1]}ms`
 
 console.log("=".repeat(72))
 console.log(`${entries.length} entries from ${source} since ${since}${op ? ` (${op})` : ""}`)
@@ -286,9 +293,17 @@ console.log(`outcomes:    ${count(entries.map((e) => e.outcome))}`)
 console.log(`languages:   ${count(entries.map((e) => `${e.inputLanguage}→${e.outputLanguage}`))}`)
 console.log(`shown:       ${shown} words over ${entries.length} calls`)
 if (rejects.length > 0) console.log(`dropped:     ${count(rejects.map((r) => r.reason))}`)
-console.log(
-  `latency:     p50=${latencies[Math.floor(latencies.length * 0.5)]}ms p95=${latencies[Math.floor(latencies.length * 0.95)]}ms`,
-)
+console.log(`models:      ${count(entries.map((e) => e.model))}`)
+// Three nested windows: what the learner waited for, what the server spent,
+// and what the model spent. Gaps between them localise a regression to the
+// network, the candidate filter, or the model itself.
+console.log(`server:      ${band(latencies)}`)
+if (modelLatencies.length > 0) console.log(`model:       ${band(modelLatencies)}`)
+if (phoneLatencies.length > 0) {
+  console.log(`phone rtt:   ${band(phoneLatencies)}  (${phoneLatencies.length}/${entries.length} calls reported)`)
+} else {
+  console.log(`phone rtt:   not reported — phones on a build older than clientRoundTripMs`)
+}
 if (problems.length > 0) {
   console.log()
   console.log(`prompt problems (${problems.length}): the model broke a rule and the filter caught it`)

@@ -43,4 +43,9 @@ services:
       PORT: "80"
       PACKAGE_NAME: com.mentra.link
       MENTRA_AUTH_JWKS_URL: https://core.mentraglass.com/.well-known/jwks.json
-      OPENROUTER_MODEL: google/gemini-3.5-flash-lite
+      # Live gloss path. Benchmarked against the corpus (backend/scripts/
+      # bench-gloss-models.ts): 328ms p50 / 430ms p95 / 92% recall, versus
+      # 755ms / 976ms / 86% on google/gemini-3.5-flash-lite. The provider pin is
+      # load-bearing — unpinned, OpenRouter routes by price and p95 hits 1206ms.
+      OPENROUTER_MODEL: openai/gpt-oss-120b
+      OPENROUTER_PROVIDER: cerebras

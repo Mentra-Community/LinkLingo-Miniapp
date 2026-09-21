@@ -4,6 +4,14 @@ export interface GlossRequest {
   outputLanguage: string
   fluencyLevel: number
   recentWords?: string[]
+  /**
+   * Wall time of the phone's *previous* gloss call, including both network
+   * legs. A client can only know its round trip after the response, so it
+   * rides along with the next request rather than costing an extra POST.
+   * This is the only number that covers what the learner actually waits for;
+   * the server's own totalMs excludes the phone-to-cloud hops entirely.
+   */
+  clientRoundTripMs?: number
 }
 
 export interface GlossedWord {

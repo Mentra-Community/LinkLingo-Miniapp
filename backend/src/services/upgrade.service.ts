@@ -2,7 +2,7 @@ import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
 import type {UpgradeRequest, UpgradeResponse} from "../shared-types"
 import {knownRankFor, lookupRank} from "./frequency"
-import {allowMockLlm, generateJson, resolveApiKey, resolveModel} from "./gemini"
+import {allowMockLlm, generateJson, resolveApiKey, resolveModel, resolveProvider} from "./gemini"
 import {annotateChinese, isChinese, languageIsChinese, languageWantsPinyin} from "./pinyin"
 import {digest, reviewLog, type ReviewEntryInput} from "./review-log"
 
@@ -107,9 +107,12 @@ export class UpgradeService {
       result = await generateJson({
         system: UPGRADE_SYSTEM,
         user,
-        maxOutputTokens: 64,
+        // Same reasoning-headroom problem as gloss: the word pair is a handful
+        // of tokens, but mandatory thinking is charged against this ceiling.
+        maxOutputTokens: 384,
         responseSchema: UPGRADE_SCHEMA,
         operation: "upgrade",
+        provider: resolveProvider(),
       })
     } catch (error) {
       review({

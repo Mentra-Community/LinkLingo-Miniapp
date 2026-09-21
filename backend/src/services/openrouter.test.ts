@@ -15,9 +15,11 @@ test('routes structured output through OpenRouter and preserves legacy response 
     expect(new Headers(init.headers).get('Authorization')).toBe('Bearer test-key')
     const body = JSON.parse(init.body as string)
     expect(body.model).toBe(resolveModel())
-    expect(body.response_format.json_schema.schema).toEqual({type: 'object', properties: {text: {type: 'string'}}})
+    // additionalProperties is injected: Cerebras 400s on a strict schema without it.
+    expect(body.response_format.json_schema.schema).toEqual({type: 'object', properties: {text: {type: 'string'}}, additionalProperties: false})
     expect(body.reasoning.effort).toBe('minimal')
     expect(body.tools).toBeUndefined()
+    expect(body.provider).toBeUndefined()
     return Response.json({choices: [{message: {content: '{"text":"hello"}'}, finish_reason: 'stop'}], usage: {prompt_tokens: 10, completion_tokens: 5, total_tokens: 15}})
   }) as unknown as typeof fetch
   const result = await generateJson(opts)
@@ -36,6 +38,14 @@ test('analyst model and reasoning remain separately configurable; length maps to
     return Response.json({choices: [{message: {content: '{'}, finish_reason: 'length'}]})
   }) as unknown as typeof fetch
   expect((await generateJson({...opts, model: resolveAnalystModel(), thinkingLevel: 'high'})).truncated).toBe(true)
+})
+test('an explicit provider is pinned with fallbacks off, so routing cannot pick a slower reseller', async () => {
+  process.env.OPENROUTER_API_KEY = 'test-key'
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    expect(JSON.parse(init.body as string).provider).toEqual({only: ['cerebras'], allow_fallbacks: false})
+    return Response.json({choices: [{message: {content: '{"text":"hi"}'}, finish_reason: 'stop'}]})
+  }) as unknown as typeof fetch
+  expect((await generateJson({...opts, provider: 'cerebras'})).text).toBe('{"text":"hi"}')
 })
 test('missing credentials, provider errors, and empty responses fail explicitly', async () => {
   delete process.env.OPENROUTER_API_KEY

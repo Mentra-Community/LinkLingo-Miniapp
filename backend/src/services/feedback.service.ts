@@ -11,7 +11,14 @@ import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
 import type {FeedbackAnalysis, FeedbackRequest} from "../shared-types"
 import {feedbackLog} from "./feedback-log"
-import {allowMockLlm, generateJson, LlmServiceError, resolveApiKey, resolveAnalystModel} from "./gemini"
+import {
+  allowMockLlm,
+  generateJson,
+  LlmServiceError,
+  resolveAnalystModel,
+  resolveAnalystProvider,
+  resolveApiKey,
+} from "./gemini"
 import {GLOSS_SYSTEM} from "./gloss.service"
 import {digest, formatReviewEntry, reviewLog} from "./review-log"
 import {formatTranscriptEntry, transcriptLog} from "./transcript-log"
@@ -131,6 +138,7 @@ export async function analyseFeedback(req: FeedbackRequest, now = Date.now()): P
       operation: "feedback",
       model,
       thinkingLevel: resolveAnalystThinking(),
+      provider: resolveAnalystProvider(),
     })
     try {
       answer = String((JSON.parse(result.text) as {answer?: unknown}).answer ?? "").trim()

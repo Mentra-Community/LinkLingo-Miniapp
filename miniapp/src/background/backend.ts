@@ -22,6 +22,16 @@ export interface UpgradeApiResult {
 
 export type BackendResult<T> = {ok: true; data: T} | {ok: false; message: string}
 
+/**
+ * Round trip of the last gloss call, piggybacked onto the next one.
+ *
+ * The server can time itself but never sees the two network legs, and the
+ * phone only learns its round trip after the response has landed — too late to
+ * report in the same request. Carrying it forward gets the end-to-end number
+ * onto the 24h review tape without spending an extra POST per gloss.
+ */
+let lastGlossRoundTripMs: number | undefined
+
 function url(path: string): string {
   return `${BACKEND_URL.replace(/\/$/, "")}${path}`
 }
@@ -82,10 +92,11 @@ export async function requestGloss(
     const res = await session.auth.fetch(url("/api/gloss"), {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(body),
+      body: JSON.stringify({...body, clientRoundTripMs: lastGlossRoundTripMs}),
     })
     const durationMs = Date.now() - started
     diagnostics.observe("gloss.roundTrip", durationMs)
+    lastGlossRoundTripMs = durationMs
     if (!res.ok) {
       const message = await describeFailure("gloss", res, durationMs)
       diagnostics.recordError(message)

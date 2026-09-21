@@ -18,7 +18,7 @@ This is the **local-miniapp** rewrite of the legacy cloud SDK app ([`MentraLabs/
                                      ▼
                        backend/  (Hono on Porter)
                        • frequency pre-filter
-                       • Gemini 3.5 Flash-Lite (JSON, thinking off)
+                       • gpt-oss-120b on Cerebras (JSON, minimal thinking)
 ```
 
 There is **no server-side glasses session**. Captions render locally with zero LLM. Gloss/upgrade is one hop to the backend (no cloud transcript-history fetch).
@@ -59,6 +59,34 @@ bun run typecheck
 bun test
 bun run freq:build -- /path/to/FrequencyWords   # regenerate data/freq
 ```
+
+## Choosing the live model
+
+The gloss/upgrade path runs whatever `OPENROUTER_MODEL` names, pinned to
+`OPENROUTER_PROVIDER`. The pin is load-bearing: unpinned, OpenRouter routes by
+price and picks a slower reseller of the same weights.
+
+```bash
+bun run bench:models:doppler                      # sweep candidates, latency first
+bun run bench:models:doppler -- --only cerebras   # one candidate
+```
+
+`backend/scripts/bench-gloss-models.ts` replays the real prompt, candidate
+filter and acceptance gate, so its recall is comparable to `eval:gloss`.
+Measured over 78 calls each (add the caller's network RTT to all rows):
+
+| model | p50 | p95 | recall |
+| --- | --- | --- | --- |
+| `openai/gpt-oss-120b` @ cerebras | 328ms | 430ms | 92% |
+| `openai/gpt-oss-120b` @ groq | 300ms | 491ms | 92% |
+| `openai/gpt-oss-20b` @ groq | 379ms | 493ms | 92% |
+| `google/gemini-3.5-flash-lite` | 755ms | 976ms | 86% |
+
+Two constraints come from reasoning models and are already handled in
+`openrouter.ts`: every object in the JSON schema carries
+`additionalProperties: false` (Cerebras 400s without it), and `maxOutputTokens`
+budgets headroom for thinking, which cannot be disabled on gpt-oss and is
+billed against the same ceiling.
 
 ## Deploy
 
@@ -104,6 +132,13 @@ bun run review:doppler -- --since 6h --problems   # only calls where the model b
 bun run review:doppler -- --save backend/data/review.jsonl   # archive locally
 bun run review -- --file backend/data/review.jsonl --since 7d # review the archive
 ```
+
+The summary prints three nested latency bands: `phone rtt` is what the learner
+actually waited for (both network legs included), `server` is the backend's own
+span, and `model` is the LLM call. The phone cannot know its round trip until
+the response lands, so it reports the previous call's timing on the next
+request — meaning the first gloss of a session has no `phoneRtt` and the count
+in the summary trails the call count by one per session.
 
 Each entry carries `prompt=<hash>` so output before and after a prompt edit can
 be compared. The pod's copy is in memory and resets on redeploy; `--save`

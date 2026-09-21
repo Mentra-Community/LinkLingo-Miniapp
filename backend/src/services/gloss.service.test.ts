@@ -10,6 +10,7 @@ let reply = '{"words":[]}'
 mock.module("./gemini", () => ({
   resolveModel: () => "test-model",
   resolveApiKey: () => "test-key",
+  resolveProvider: () => undefined,
   allowMockLlm: () => false,
   LlmServiceError: class extends Error {},
   generateJson: async (opts: GeminiCallOptions): Promise<GeminiCallResult> => {

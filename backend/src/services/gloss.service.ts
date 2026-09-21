@@ -2,7 +2,7 @@ import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
 import type {GlossRequest, GlossResponse, GlossedWord} from "../shared-types"
 import {candidateWords, knownRankFor, lookupRank, type WordCandidate} from "./frequency"
-import {allowMockLlm, generateJson, LlmServiceError, resolveApiKey, resolveModel} from "./gemini"
+import {allowMockLlm, generateJson, LlmServiceError, resolveApiKey, resolveModel, resolveProvider} from "./gemini"
 import {annotateChinese, isChinese, languageIsChinese, languageWantsPinyin} from "./pinyin"
 import {digest, reviewLog, type ReviewEntryInput} from "./review-log"
 import {looksUntranslated} from "./script"
@@ -106,6 +106,14 @@ export class GlossService {
       : []
     const selectMs = Date.now() - selectStarted
 
+    // The phone reports the previous call's round trip, so the tape carries the
+    // only end-to-end number we have. Recorded on every entry, including skips.
+    const clientRoundTripMs =
+      typeof body.clientRoundTripMs === "number" && Number.isFinite(body.clientRoundTripMs) && body.clientRoundTripMs >= 0
+        ? Math.round(body.clientRoundTripMs)
+        : undefined
+    if (clientRoundTripMs != null) metrics.observe("gloss_client_round_trip", clientRoundTripMs)
+
     const review = (fields: Partial<ReviewEntryInput> & {outcome: string; totalMs: number}) =>
       reviewLog.record({
         op: "gloss",
@@ -120,6 +128,7 @@ export class GlossService {
         recent,
         accepted: [],
         rejected: [],
+        clientRoundTripMs,
         ...fields,
       })
 
@@ -185,9 +194,13 @@ export class GlossService {
       result = await generateJson({
         system: GLOSS_SYSTEM,
         user,
-        maxOutputTokens: 192,
+        // The answer is ~40 tokens, but reasoning models bill thinking against
+        // this budget and gpt-oss cannot disable it. At 192 the JSON was cut off
+        // on 15% of calls and recall fell from 92% to 69%.
+        maxOutputTokens: 512,
         responseSchema: GLOSS_SCHEMA,
         operation: "gloss",
+        provider: resolveProvider(),
       })
     } catch (error) {
       review({

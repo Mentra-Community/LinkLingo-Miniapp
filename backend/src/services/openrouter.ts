@@ -29,6 +29,12 @@ export interface GeminiCallOptions {
   model?: string
   /** Reasoning budget. The live path stays "minimal"; the analyst gets to think. */
   thinkingLevel?: "minimal" | "low" | "medium" | "high"
+  /**
+   * Upstream to pin. Callers pass this explicitly because the live path and the
+   * analyst run on different silicon: pinning the live path's provider onto a
+   * Google model would make every analyst call fail.
+   */
+  provider?: string
 }
 
 /** User-triggered analyst calls retain a stronger model than the live path. */
@@ -54,6 +60,20 @@ export interface GeminiCallResult {
 
 export function resolveModel(): string {
   return process.env.OPENROUTER_MODEL || "google/gemini-3.5-flash-lite"
+}
+
+/**
+ * Upstream for the live path. Unset means "let OpenRouter choose", which picks
+ * the cheapest reseller and measured a p95 of 1206ms against 430ms pinned — the
+ * pin is what buys the latency, not the model slug alone.
+ */
+export function resolveProvider(): string | undefined {
+  return process.env.OPENROUTER_PROVIDER || undefined
+}
+
+/** The analyst runs on a different model, so it pins separately or not at all. */
+export function resolveAnalystProvider(): string | undefined {
+  return process.env.OPENROUTER_ANALYST_PROVIDER || undefined
 }
 
 export function resolveApiKey(): string | undefined {
@@ -96,13 +116,21 @@ interface OpenRouterResponseBody {
   usage?: {prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; cost?: number}
 }
 
-/** Convert Gemini schema type names while retaining the caller's output schema. */
+/**
+ * Convert Gemini schema type names while retaining the caller's output schema.
+ *
+ * Every object node also gets `additionalProperties: false`. Cerebras rejects a
+ * strict schema without it (HTTP 400, "'additionalProperties' is required to be
+ * supplied and set to false"); Google and Groq accept it either way.
+ */
 function jsonSchema(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(jsonSchema)
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+    const mapped = Object.fromEntries(Object.entries(value).map(([key, item]) => [
       key, key === "type" && typeof item === "string" ? item.toLowerCase() : jsonSchema(item),
     ]))
+    if (typeof mapped.type === "string" && mapped.type === "object") mapped.additionalProperties = false
+    return mapped
   }
   return value
 }
@@ -110,7 +138,7 @@ function jsonSchema(value: unknown): unknown {
 export async function generateJson(opts: GeminiCallOptions): Promise<GeminiCallResult> {
   const apiKey = resolveApiKey()
   const model = opts.model ?? resolveModel()
-  const call = log.child({op: opts.operation, model})
+  const call = log.child({op: opts.operation, model, provider: opts.provider})
 
   if (!apiKey) {
     metrics.increment("llm_calls_total", {op: opts.operation, outcome: "no_key"})
@@ -138,6 +166,8 @@ export async function generateJson(opts: GeminiCallOptions): Promise<GeminiCallR
           max_tokens: opts.maxOutputTokens,
           response_format: {type: "json_schema", json_schema: {name: "linklingo_response", schema: jsonSchema(opts.responseSchema)}},
           reasoning: {effort: !opts.thinkingLevel || opts.thinkingLevel === "minimal" ? "minimal" : opts.thinkingLevel},
+          // Absent `only`, OpenRouter routes by price, not speed.
+          ...(opts.provider ? {provider: {only: [opts.provider], allow_fallbacks: false}} : {}),
         }),
         signal: AbortSignal.timeout(60_000),
       },
@@ -163,7 +193,7 @@ export async function generateJson(opts: GeminiCallOptions): Promise<GeminiCallR
       retryAfter: response.headers.get("retry-after") ?? undefined,
     })
     throw new LlmServiceError(
-      `OpenRouter ${response.status} (model=${model})`,
+      `OpenRouter ${response.status} (model=${model}${opts.provider ? `, provider=${opts.provider}` : ""})`,
       classifyUpstream(response.status),
       response.status,
     )

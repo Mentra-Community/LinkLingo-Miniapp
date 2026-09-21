@@ -62,6 +62,8 @@ export interface ReviewEntry {
   rejected: ReviewRejection[]
   geminiMs?: number
   totalMs: number
+  /** Phone-measured round trip of the previous call; see GlossRequest. */
+  clientRoundTripMs?: number
 }
 
 export type ReviewEntryInput = Omit<ReviewEntry, "id" | "at" | "requestId" | "user">
@@ -194,6 +196,8 @@ export function formatReviewEntry(entry: ReviewEntry): string {
     lines.push(`  dropped:    ${entry.rejected.map((r) => `${r.word} (${r.reason})`).join(", ")}`)
   }
   const meta = [entry.model, `prompt=${entry.promptVersion}`]
+  if (entry.geminiMs != null) meta.push(`model=${entry.geminiMs}ms`)
+  if (entry.clientRoundTripMs != null) meta.push(`phoneRtt=${entry.clientRoundTripMs}ms`)
   if (entry.user) meta.push(`user=${entry.user}`)
   if (entry.requestId) meta.push(`req=${entry.requestId}`)
   lines.push(`  ${meta.join("  ")}`)
