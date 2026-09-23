@@ -37,9 +37,11 @@ export interface GeminiCallOptions {
   provider?: string
 }
 
-/** User-triggered analyst calls retain a stronger model than the live path. */
+/** User-triggered analyst calls. Opus, not the live gloss model; Cerebras does not serve it. */
+export const DEFAULT_ANALYST_MODEL = "anthropic/claude-opus-5.5"
+
 export function resolveAnalystModel(): string {
-  return process.env.OPENROUTER_ANALYST_MODEL || "google/gemini-3.1-pro-preview"
+  return process.env.OPENROUTER_ANALYST_MODEL || DEFAULT_ANALYST_MODEL
 }
 
 export interface GeminiUsage {

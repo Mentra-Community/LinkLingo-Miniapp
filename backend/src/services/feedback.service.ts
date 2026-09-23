@@ -18,6 +18,7 @@ import {
   resolveAnalystModel,
   resolveAnalystProvider,
   resolveApiKey,
+  resolveModel,
 } from "./gemini"
 import {GLOSS_SYSTEM} from "./gloss.service"
 import {digest, formatReviewEntry, reviewLog} from "./review-log"
@@ -37,10 +38,10 @@ How the pipeline works, in order:
 1. The phone's speech recogniser produces final utterances (it may mistranscribe, split, or mislabel the language).
 2. The phone skips an utterance whose dominant script is the OUTPUT language (the learner reads that natively). Only applies when the two languages use different scripts.
 3. The backend tokenises the utterance, drops tokens the learner already knows (rank <= KNOWN in a frequency list), drops output-script tokens, and offers the remaining rare tokens to the gloss model as word:rank.
-4. Gemini Flash-Lite runs the gloss prompt (quoted below) over the candidates and picks at most MAX words with translations. The backend rejects picks that are not candidates, untranslated (same script as input), recently shown, or known.
+4. The live gloss model (named LIVE GLOSS MODEL in the user message; it is not you) runs the gloss prompt over the candidates and picks at most MAX words with translations. The backend rejects picks that are not candidates, untranslated (same script as input), recently shown, or known.
 5. Rows sit on the glasses for ~25s in fixed slots: 3 word rows above 3 caption rows.
 
-Reply to the learner directly and briefly, in the language they wrote in (keep quoted tape text, code and identifiers verbatim). Ground everything in the evidence provided: quote the utterance, candidate list, raw model answer or rejection reason when it matters, and never invent tape entries. If they describe a problem, say which stage most plausibly caused it and what concrete change would fix it — including the exact prompt wording if the prompt is at fault. If the behaviour was actually correct, say so and explain why. If they ask a general question, just answer it. Under 150 words, plain prose, no headings.
+Reply to the learner directly, in the language they wrote in (keep quoted tape text, code and identifiers verbatim). Answer the question they actually asked. If they ask what someone said, who was speaking, or what a name or number referred to, reconstruct that from the tape in plain language. Diagnose a pipeline stage only when they ask why the glasses showed, skipped, or mistranslated something — and then quote the utterance, the candidate list, or the rejection reason that supports it. Never invent tape entries. If the tape does not contain the conversation, say so. You cannot change code, settings, or files, and you cannot file tickets or remember anything after this reply. Never say you will note, log, fix, or change something; describe what would need to change instead. You cannot change code, settings, or files, and you cannot file tickets or remember anything after this reply. Never say you will note, log, fix, or change something; describe what would need to change instead. Under 180 words, plain prose, no headings.
 
 Return JSON only: {"answer": "..."}`
 
@@ -90,7 +91,8 @@ function buildUserPrompt(req: FeedbackRequest, tapeText: string, glossText: stri
     "",
     `SERVER GLOSS CALLS, last ${TAPE_WINDOW_MS / 60_000} min (heard → candidates → raw model answer → shown / dropped):\n${glossText || "(no model calls recorded for this user)"}`,
     "",
-    `CURRENT GLOSS PROMPT (the system instruction Flash-Lite runs under):\n"""\n${GLOSS_SYSTEM}\n"""`,
+    `LIVE GLOSS MODEL: ${resolveModel()}`,
+    `CURRENT GLOSS PROMPT (the system instruction that model runs under):\n"""\n${GLOSS_SYSTEM}\n"""`,
   ]
     .filter((line) => line !== "")
     .join("\n")

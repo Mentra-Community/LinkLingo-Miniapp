@@ -245,9 +245,10 @@ something new — the cache shortens the wait rather than replacing the model.
 `buildId` on `/healthz` and `serverBuildId` on every entry exist so a
 backend-only change is visible against an unchanged client version. The CI
 workflow stamps the commit into `build-id.txt`; the committed copy says `dev`,
-which means "fall back to the working tree's git SHA". The pod's copy is in memory and resets on redeploy; `--save`
-appends new entries (deduplicated) to a JSONL file, so a daily run keeps a
-durable history. `--problems` is the prompt-tuning view: `untranslated` means
+which means "fall back to the working tree's git SHA". The pod also writes
+every transcript, gloss call, and analyst question to `LINKLINGO_TAPE_BUCKET`
+and reloads the last 24h after a restart. `--save` appends new entries
+(deduplicated) to a JSONL file, so a daily run keeps a longer history. `--problems` is the prompt-tuning view: `untranslated` means
 the model answered in the wrong language, `echo` that it repeated the word,
 `not_candidate` that it invented a word off the list.
 
@@ -268,9 +269,12 @@ what you just saw — "why did it gloss 餐厅", "the last one was wrong", a gen
 question — and hit Send. The phone ships the last few translations, the rows
 on the HUD and the last ~30 s of speech; the backend adds the last 10 minutes
 of that user's transcript tape and gloss calls plus the live gloss prompt, and
-`google/gemini-3.1-pro-preview` (`OPENROUTER_ANALYST_MODEL`; thinking level
-`GEMINI_ANALYST_THINKING`, default `medium`, ~8–10 s) answers in plain text,
-grounded in the tape. Every exchange is archived on the same 24h tape:
+the analyst model (`OPENROUTER_ANALYST_MODEL` in `porter.dev.yaml`, provider
+`OPENROUTER_ANALYST_PROVIDER`; thinking level
+`GEMINI_ANALYST_THINKING`, default `medium`) answers in plain text, grounded
+in the tape. Transcripts, gloss calls, and these questions are written to
+the S3 bucket in `LINKLINGO_TAPE_BUCKET` and reloaded for 24h after a pod
+restart. Every exchange is also on that same tape:
 
 ```
 bun run review:doppler -- --feedback

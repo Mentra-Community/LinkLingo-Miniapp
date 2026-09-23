@@ -1,5 +1,5 @@
 import {afterEach, expect, test} from 'bun:test'
-import {generateJson, resolveAnalystModel, resolveModel} from './openrouter'
+import {DEFAULT_ANALYST_MODEL, generateJson, resolveAnalystModel, resolveModel} from './openrouter'
 const originalFetch = globalThis.fetch
 const originalKey = process.env.OPENROUTER_API_KEY
 const opts = {system: 'Translate', user: '你好', maxOutputTokens: 100, operation: 'test', responseSchema: {type: 'OBJECT', properties: {text: {type: 'STRING'}}}}
@@ -7,6 +7,17 @@ afterEach(() => {
   globalThis.fetch = originalFetch
   if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY
   else process.env.OPENROUTER_API_KEY = originalKey
+})
+test('the analyst has its own default and does not inherit the live gloss model', () => {
+  const previous = process.env.OPENROUTER_ANALYST_MODEL
+  delete process.env.OPENROUTER_ANALYST_MODEL
+  try {
+    expect(resolveAnalystModel()).toBe(DEFAULT_ANALYST_MODEL)
+    expect(resolveAnalystModel()).not.toBe(resolveModel())
+  } finally {
+    if (previous === undefined) delete process.env.OPENROUTER_ANALYST_MODEL
+    else process.env.OPENROUTER_ANALYST_MODEL = previous
+  }
 })
 test('routes structured output through OpenRouter and preserves legacy response fields', async () => {
   process.env.OPENROUTER_API_KEY = 'test-key'

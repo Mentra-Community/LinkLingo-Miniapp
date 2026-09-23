@@ -49,3 +49,13 @@ services:
       # load-bearing — unpinned, OpenRouter routes by price and p95 hits 1206ms.
       OPENROUTER_MODEL: openai/gpt-oss-120b
       OPENROUTER_PROVIDER: cerebras
+      # WebView "ask" box. Separate from the live gloss pin: Cerebras does not
+      # serve Opus, and this call is allowed to take seconds.
+      OPENROUTER_ANALYST_MODEL: anthropic/claude-opus-5.5
+      OPENROUTER_ANALYST_PROVIDER: anthropic
+      AWS_REGION: us-west-2
+      # 24h tape. Survives the Karpenter eviction that wipes pod memory.
+      LINKLINGO_TAPE_BUCKET: porter-15081-linklingo-tape-fa86de16
+    connections:
+      - type: awsRole
+        role: porter-s3-7a9d09e4
