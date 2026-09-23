@@ -3,11 +3,10 @@
  * for about a day so the prompt can be tuned against real output rather than
  * against the eval corpus alone.
  *
- * Storage is an in-memory ring on the pod. That is deliberate: it needs no
- * infrastructure and a redeploy is the natural end of a review window, since a
- * new deploy usually means a new prompt. Set LINKLINGO_REVIEW_FILE to also
- * append every entry as JSONL for a durable local history; the review script
- * does the same on the laptop side with `--save`.
+ * The serving copy is an in-memory ring. When LINKLINGO_TAPE_BUCKET is set,
+ * every row is also written to S3 and reloaded after a pod eviction, so the
+ * 24h window survives Karpenter. LINKLINGO_REVIEW_FILE still appends JSONL
+ * for a local archive; the review script does the same with `--save`.
  */
 
 import {createHash} from "node:crypto"
@@ -18,6 +17,7 @@ import {currentRequestContext} from "../observability/context"
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
 import type {GlossClientPrevious, GlossQueueReason, GlossTrigger} from "../shared-types"
+import {mergeById, persistTape} from "./tape-store"
 
 const log = createLogger("review")
 
@@ -154,7 +154,14 @@ export class ReviewLog {
     this.prune(now)
     metrics.increment("review_entries_total", {op: entry.op, outcome: entry.outcome})
     if (this.file) this.append(entry)
+    persistTape("review", entry)
     return entry
+  }
+
+  /** Merge rows loaded from the durable store. Does not write them back. */
+  loadFrom(incoming: ReviewEntry[]): void {
+    this.entries = mergeById(this.entries, incoming)
+    this.prune(Date.now())
   }
 
   /**
@@ -174,6 +181,7 @@ export class ReviewLog {
       entry.renderMs = previous.renderMs
       entry.triggerToRenderMs = previous.triggerToRenderMs
       entry.clientOutcome = previous.outcome
+      persistTape("review", entry)
       return true
     }
     metrics.increment("review_client_metrics_unmatched_total")

@@ -38,6 +38,7 @@
     "sync-vendor": "bash scripts/sync-vendor.sh"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1137.0",
     "@mentra/auth": "workspace:*",
     "@mentra/miniapp": "workspace:*",
     "@node-rs/jieba": "^2.0.1",

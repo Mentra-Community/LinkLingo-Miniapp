@@ -12,6 +12,7 @@ import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
 import type {FeedbackAnalysis, FeedbackRequest} from "../shared-types"
 import {digest} from "./review-log"
+import {mergeById, persistTape} from "./tape-store"
 
 const log = createLogger("feedback")
 
@@ -76,7 +77,14 @@ export class FeedbackLog {
     this.prune(now)
     metrics.increment("feedback_entries_total")
     if (this.file) this.append(entry)
+    persistTape("feedback", entry)
     return entry
+  }
+
+  /** Merge rows loaded from the durable store. Does not write them back. */
+  loadFrom(incoming: FeedbackEntry[]): void {
+    this.entries = mergeById(this.entries, incoming)
+    this.prune(Date.now())
   }
 
   list(query: FeedbackQuery = {}, now = Date.now()): FeedbackEntry[] {

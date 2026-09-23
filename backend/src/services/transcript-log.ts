@@ -16,6 +16,7 @@ import {metrics} from "../observability/metrics"
 import type {ShadowInterimObservation, TranscriptDisposition, TranscriptRequest} from "../shared-types"
 import {candidateWords, knownRankFor} from "./frequency"
 import {digest} from "./review-log"
+import {mergeById, persistTape} from "./tape-store"
 
 const log = createLogger("transcript")
 
@@ -114,7 +115,14 @@ export class TranscriptLog {
     }
     if (input.asrLeadMs != null) metrics.observe("gloss_asr_lead", input.asrLeadMs)
     if (this.file) this.append(entry)
+    persistTape("transcript", entry)
     return entry
+  }
+
+  /** Merge rows loaded from the durable store. Does not write them back. */
+  loadFrom(incoming: TranscriptEntry[]): void {
+    this.entries = mergeById(this.entries, incoming)
+    this.prune(Date.now())
   }
 
   list(query: TranscriptQuery = {}, now = Date.now()): TranscriptEntry[] {

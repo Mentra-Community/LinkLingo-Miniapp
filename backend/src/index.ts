@@ -4,6 +4,7 @@ import {createLogger, logFormat, logLevel} from "./observability/logger"
 import {metrics} from "./observability/metrics"
 import {apiKeyFingerprint, allowMockLlm, resolveApiKeySource, resolveModel} from "./services/gemini"
 import {startLlmKeepalive, stopLlmKeepalive} from "./services/llm-keepalive"
+import {refreshTape, startTapeStore, stopTapeStore} from "./services/tape-s3"
 import {allowUnauth} from "./api/auth"
 
 const log = createLogger("server")
@@ -46,14 +47,23 @@ export async function startBackend(opts: StartBackendOptions = {}): Promise<Back
   const boundPort = server.port!
 
   logStartupConfig(boundPort)
+  // Don't block /healthz on S3. The load fills the rings a moment after listen;
+  // the interval below catches anything still in flight from the previous pod.
+  void startTapeStore()
   startLlmKeepalive()
+  // The previous pod can still be flushing while this one boots. A second
+  // load picks up those rows without waiting for the next eviction.
+  const refresh = setInterval(() => void refreshTape(), 60_000)
+  refresh.unref?.()
   log.info("listening", {url: `http://localhost:${boundPort}`})
 
   return {
     port: boundPort,
     url: `http://localhost:${boundPort}`,
     async stop() {
+      clearInterval(refresh)
       stopLlmKeepalive()
+      await stopTapeStore()
       server.stop()
     },
   }

@@ -5,6 +5,7 @@ import {serverBuildId} from "../observability/build-id"
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
 import {dictionaryDiagnostics} from "../services/frequency"
+import {tapeEnabled} from "../services/tape-store"
 import {apiKeyFingerprint, resolveAnalystModel, resolveApiKeySource} from "../services/gemini"
 import {glossService} from "../services/gloss.service"
 import {bundleApi, hostedBundleStatus} from "./bundle.api"
@@ -51,6 +52,10 @@ export function createApp(): Hono {
       buildId: serverBuildId(),
       model: glossService.model,
       analystModel: resolveAnalystModel(),
+      tape: {
+        enabled: tapeEnabled(),
+        bucket: process.env.LINKLINGO_TAPE_BUCKET ?? null,
+      },
       llmKeySource: resolveApiKeySource() ?? null,
       llmKeyFingerprint: apiKeyFingerprint() ?? null,
       uptimeSeconds: metrics.snapshot().uptimeSeconds,
