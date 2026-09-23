@@ -135,6 +135,19 @@ export interface FeedbackAnalysis {
   model: string
   answer: string
   totalMs: number
+  /** Set when the comment asked for a change and a coding agent was started for it. */
+  change?: CodeChange
+}
+
+/** A coding agent run started from the ask box. */
+export interface CodeChange {
+  status: "started" | "finished" | "failed"
+  agentId?: string
+  runId?: string
+  /** The agent's closing summary, or why it failed. */
+  detail?: string
+  at: number
+  finishedAt?: number
 }
 
 /**

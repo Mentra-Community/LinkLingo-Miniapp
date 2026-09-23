@@ -54,6 +54,10 @@ services:
       OPENROUTER_ANALYST_MODEL: anthropic/claude-opus-5.5
       OPENROUTER_ANALYST_PROVIDER: anthropic
       AWS_REGION: us-west-2
+      # Ask-box change requests become a Cursor cloud agent that pushes here.
+      # Off until CURSOR_API_KEY (secret) and LINKLINGO_CODE_AGENT_USERS
+      # (Mentra user ids) are set in the linklingo-dev env group.
+      LINKLINGO_CODE_AGENT_REPO: https://github.com/Mentra-Community/LinkLingo-Miniapp
       # 24h tape. Survives the Karpenter eviction that wipes pod memory.
       LINKLINGO_TAPE_BUCKET: porter-15081-linklingo-tape-fa86de16
     connections:

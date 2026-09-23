@@ -81,6 +81,15 @@ export class FeedbackLog {
     return entry
   }
 
+  /** Records what the coding agent did with this comment, minutes after the answer went back. */
+  setChange(id: string, change: FeedbackAnalysis["change"]): boolean {
+    const entry = this.entries.find((e) => e.id === id)
+    if (!entry) return false
+    entry.analysis = {...entry.analysis, change}
+    persistTape("feedback", entry)
+    return true
+  }
+
   /** Merge rows loaded from the durable store. Does not write them back. */
   loadFrom(incoming: FeedbackEntry[]): void {
     this.entries = mergeById(this.entries, incoming)
@@ -148,6 +157,11 @@ export function formatFeedbackEntry(entry: FeedbackEntry): string {
   const heard = entry.snapshot.recentUtterances.slice(-3).map((u) => u.text)
   if (heard.length > 0) lines.push(`  heard:      ${heard.join(" / ")}`)
   lines.push(`  analyst:    ${entry.analysis.answer.replace(/\s+/g, " ").trim()}`)
+  const change = entry.analysis.change
+  if (change) {
+    const detail = change.detail ? ` — ${change.detail.replace(/\s+/g, " ").trim()}` : ""
+    lines.push(`  change:     ${change.status}${change.agentId ? ` agent=${change.agentId}` : ""}${detail}`)
+  }
   const meta = [entry.analysis.model, `tape=${entry.tape.transcripts}t/${entry.tape.glossCalls}g`]
   if (entry.user) meta.push(`user=${entry.user}`)
   if (entry.requestId) meta.push(`req=${entry.requestId}`)

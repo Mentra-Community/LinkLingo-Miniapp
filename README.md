@@ -281,6 +281,17 @@ bun run review:doppler -- --feedback
 bun run review:doppler -- --feedback --save backend/data/feedback.jsonl
 ```
 
+When a comment asks for the app to behave differently, the analyst also
+writes a change request, and the backend starts a Cursor cloud agent
+(`backend/src/services/code-agent.ts`) that edits this repo, runs
+typecheck and tests, and pushes straight to `main`. The dev deploy
+workflow then ships it with no review step. Backend changes are live
+about 10 minutes later. Changes under `miniapp/` bump the version and
+need a new install QR, because release installs are pinned. It is off
+unless `CURSOR_API_KEY` and `LINKLINGO_CODE_AGENT_USERS` are set, and only
+the listed Mentra accounts can trigger it. The agent's outcome is written
+back onto the comment (`change:` in `--feedback`).
+
 The raw endpoints are `GET /api/review/entries` (model I/O),
 `GET /api/review/transcripts` (heard speech) and `GET /api/review/feedback`
 (comments + analyst answers), all behind

@@ -10,6 +10,7 @@ import {currentRequestContext} from "../observability/context"
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
 import type {FeedbackAnalysis, FeedbackRequest} from "../shared-types"
+import {codeAgentGate, describeChange, startCodeChange} from "./code-agent"
 import {feedbackLog} from "./feedback-log"
 import {
   allowMockLlm,
@@ -41,14 +42,16 @@ How the pipeline works, in order:
 4. The live gloss model (named LIVE GLOSS MODEL in the user message; it is not you) runs the gloss prompt over the candidates and picks at most MAX words with translations. The backend rejects picks that are not candidates, untranslated (same script as input), recently shown, or known.
 5. Rows sit on the glasses for ~25s in fixed slots: 3 word rows above 3 caption rows.
 
-Reply to the learner directly, in the language they wrote in (keep quoted tape text, code and identifiers verbatim). Answer the question they actually asked. If they ask what someone said, who was speaking, or what a name or number referred to, reconstruct that from the tape in plain language. Diagnose a pipeline stage only when they ask why the glasses showed, skipped, or mistranslated something — and then quote the utterance, the candidate list, or the rejection reason that supports it. Never invent tape entries. If the tape does not contain the conversation, say so. You cannot change code, settings, or files, and you cannot file tickets or remember anything after this reply. Never say you will note, log, fix, or change something; describe what would need to change instead. You cannot change code, settings, or files, and you cannot file tickets or remember anything after this reply. Never say you will note, log, fix, or change something; describe what would need to change instead. Under 180 words, plain prose, no headings.
+Reply to the learner directly, in the language they wrote in (keep quoted tape text, code and identifiers verbatim). Answer the question they actually asked. If they ask what someone said, who was speaking, or what a name or number referred to, reconstruct that from the tape in plain language. Diagnose a pipeline stage only when they ask why the glasses showed, skipped, or mistranslated something — and then quote the utterance, the candidate list, or the rejection reason that supports it. Never invent tape entries. If the tape does not contain the conversation, say so. Under 180 words, plain prose, no headings.
 
-Return JSON only: {"answer": "..."}`
+You cannot edit anything yourself. When the learner asks for the app to behave differently — a new feature, a changed setting, a fix for something that went wrong — also write "changeRequest": a self-contained instruction for an engineer who has the repository but not this conversation. Say what should change, where you think it lives (phone routing, backend candidate selection, gloss prompt, HUD layout), the evidence from the tape, and how to tell it worked. A coding agent receives it and ships it to the dev server. In "answer", say that the change has been sent to be built; never claim it is already live. For questions, explanations, or complaints that are not asking for a change, set "changeRequest" to "".
+
+Return JSON only: {"answer": "...", "changeRequest": "..."}`
 
 const ANALYST_SCHEMA = {
   type: "object",
-  properties: {answer: {type: "string"}},
-  required: ["answer"],
+  properties: {answer: {type: "string"}, changeRequest: {type: "string"}},
+  required: ["answer", "changeRequest"],
 }
 
 type ThinkingLevel = "minimal" | "low" | "medium" | "high"
@@ -124,6 +127,7 @@ export async function analyseFeedback(req: FeedbackRequest, now = Date.now()): P
   })
 
   let answer: string
+  let changeRequest = ""
   let modelUsed = model
   if (!resolveApiKey() && allowMockLlm()) {
     answer = "Mock analyst: LINKLINGO_ALLOW_MOCK_LLM is set, so no model was consulted."
@@ -143,7 +147,9 @@ export async function analyseFeedback(req: FeedbackRequest, now = Date.now()): P
       provider: resolveAnalystProvider(),
     })
     try {
-      answer = String((JSON.parse(result.text) as {answer?: unknown}).answer ?? "").trim()
+      const parsed = JSON.parse(result.text) as {answer?: unknown; changeRequest?: unknown}
+      answer = String(parsed.answer ?? "").trim()
+      changeRequest = String(parsed.changeRequest ?? "").trim()
     } catch (error) {
       metrics.increment("feedback_outcomes_total", {outcome: "unparseable"})
       log.error("analyst returned unparseable JSON", {raw: result.text.slice(0, 400), error})
@@ -162,6 +168,20 @@ export async function analyseFeedback(req: FeedbackRequest, now = Date.now()): P
     analysis,
   })
   analysis.id = entry.id
+
+  if (changeRequest) {
+    const gate = codeAgentGate(user)
+    const change =
+      gate === "ok"
+        ? await startCodeChange({note, instruction: changeRequest, feedbackId: entry.id}, (done) =>
+            feedbackLog.setChange(entry.id, done),
+          )
+        : undefined
+    analysis.answer = `${answer}\n\n${describeChange(gate, change)}`
+    analysis.change = change
+    feedbackLog.setChange(entry.id, change)
+    log.info("change requested", {id: entry.id, gate, status: change?.status, agentId: change?.agentId})
+  }
 
   metrics.increment("feedback_outcomes_total", {outcome: "ok"})
   metrics.observe("feedback_duration", analysis.totalMs)
