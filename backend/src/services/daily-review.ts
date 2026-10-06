@@ -19,6 +19,12 @@ const WINDOW_MS = 24 * 3_600_000
 /** A review younger than this means the learner is done for the day. */
 const REVIEW_EVERY_MS = 20 * 3_600_000
 const LOOP_MS = 3_600_000
+/**
+ * Karpenter evicts the dev pod about every 30 minutes, so an hourly timer
+ * alone would never fire. Check once shortly after boot, once the tape has
+ * loaded; the ledger lookup keeps a new pod from reviewing the same day again.
+ */
+const FIRST_RUN_MS = 2 * 60_000
 /** Fewer finals than this is not enough speech to say anything about. */
 const MIN_UTTERANCES = 5
 const MAX_UTTERANCES = 400
@@ -184,14 +190,19 @@ export class DailyReviewer {
 export const dailyReviewer = new DailyReviewer()
 
 let timer: ReturnType<typeof setInterval> | null = null
+let firstRun: ReturnType<typeof setTimeout> | null = null
 
 export function startDailyReviews(): void {
   if (timer) return
+  firstRun = setTimeout(() => void dailyReviewer.runOnce(), FIRST_RUN_MS)
+  firstRun.unref?.()
   timer = setInterval(() => void dailyReviewer.runOnce(), LOOP_MS)
   timer.unref?.()
 }
 
 export function stopDailyReviews(): void {
+  if (firstRun) clearTimeout(firstRun)
   if (timer) clearInterval(timer)
+  firstRun = null
   timer = null
 }
