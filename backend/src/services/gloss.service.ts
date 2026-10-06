@@ -4,6 +4,7 @@ import {metrics} from "../observability/metrics"
 import type {GlossRequest, GlossResponse, GlossedWord} from "../shared-types"
 import {candidateWords, knownRankFor, lookupRank, type WordCandidate} from "./frequency"
 import {allowMockLlm, generateJson, LlmServiceError, resolveApiKey, resolveModel, resolveProvider} from "./gemini"
+import {historyStore} from "./history-store"
 import {annotateChinese, isChinese, languageIsChinese, languageWantsPinyin} from "./pinyin"
 import {digest, reviewLog, type ReviewEntryInput} from "./review-log"
 import {looksUntranslated} from "./script"
@@ -73,6 +74,28 @@ function pickBudget(proficiency: number): number {
   return proficiency < 34 ? 3 : 2
 }
 
+const MIN_KNOWN_RANK = 100
+const MAX_KNOWN_RANK = 60_000
+
+/** A client may ask for its own cut and budget; neither may leave the range the prompt was tuned for. */
+export function resolveGlossLimits(body: Pick<GlossRequest, "fluencyLevel" | "knownRank" | "maxWords">): {
+  knownRank: number
+  maxWords: number
+} {
+  const proficiency = body.fluencyLevel ?? 50
+  const knownRank = Number.isFinite(body.knownRank)
+    ? Math.round(Math.min(MAX_KNOWN_RANK, Math.max(MIN_KNOWN_RANK, body.knownRank!)))
+    : knownRankFor(proficiency)
+  const maxWords = Number.isFinite(body.maxWords)
+    ? Math.round(Math.min(3, Math.max(1, body.maxWords!)))
+    : pickBudget(proficiency)
+  return {knownRank, maxWords}
+}
+
+/** Appended to the user message, not the system prompt, so the prompt hash stays comparable. */
+export const REVERSE_HINT =
+  "Purpose: the speaker is learning the output language and fell back to these input-language words mid-conversation. Gloss the content words they reached for into the output language, even everyday ones."
+
 function annotatePair(word: string, translation: string, inputLang: string, outputLang: string): GlossedWord {
   const inPinyin = languageWantsPinyin(inputLang)
   const outPinyin = languageWantsPinyin(outputLang)
@@ -93,13 +116,14 @@ export class GlossService {
     const context = (body.conversationContext ?? "").trim()
     const recent = body.recentWords ?? []
     const proficiency = body.fluencyLevel ?? 50
-    const knownRank = knownRankFor(proficiency)
-    const maxWords = pickBudget(proficiency)
+    const {knownRank, maxWords} = resolveGlossLimits(body)
+    const purpose = body.purpose === "reverse" ? "reverse" : "forward"
     const call = log.child({
       in: body.inputLanguage,
       out: body.outputLanguage,
       fluency: proficiency,
       knownRank,
+      purpose,
     })
     const selectStarted = Date.now()
     const candidates = context
@@ -142,6 +166,7 @@ export class GlossService {
         outputLanguage: body.outputLanguage,
         proficiency,
         knownRank,
+        purpose,
         context: context.slice(-400),
         candidates: candidates.map((c) => `${c.word}:${c.rank}`),
         recent,
@@ -163,6 +188,7 @@ export class GlossService {
     metrics.increment("gloss_requests_total", {
       in: body.inputLanguage,
       out: body.outputLanguage,
+      purpose,
     })
     metrics.observe("gloss_candidate_selection_duration", selectMs)
     call.debug("candidates selected", {
@@ -217,6 +243,7 @@ export class GlossService {
       `Context: ${context.slice(-400)}`,
       `Candidates: ${formatCandidates(candidates)}`,
       `Recent: ${recent.join(", ") || "(none)"}`,
+      ...(purpose === "reverse" ? [REVERSE_HINT] : []),
     ].join("\n")
 
     let result
@@ -305,6 +332,19 @@ export class GlossService {
       }
       words.push(annotatePair(word, translation, body.inputLanguage, body.outputLanguage))
       if (words.length >= maxWords) break
+    }
+
+    const userId = currentRequestContext()?.userId
+    const at = Date.now()
+    for (const word of words) {
+      historyStore.record(userId ? digest(userId) : undefined, {
+        kind: purpose === "reverse" ? "reverse" : "gloss",
+        at,
+        word: word.word,
+        translation: word.translation,
+        in: body.inputLanguage,
+        out: body.outputLanguage,
+      })
     }
 
     const totalMs = Date.now() - started

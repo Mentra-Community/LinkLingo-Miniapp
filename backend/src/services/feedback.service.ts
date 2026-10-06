@@ -12,6 +12,7 @@ import {metrics} from "../observability/metrics"
 import type {FeedbackAnalysis, FeedbackRequest} from "../shared-types"
 import {codeAgentGate, describeChange, startCodeChange} from "./code-agent"
 import {feedbackLog} from "./feedback-log"
+import {historyStore} from "./history-store"
 import {
   allowMockLlm,
   generateJson,
@@ -182,6 +183,14 @@ export async function analyseFeedback(req: FeedbackRequest, now = Date.now()): P
     feedbackLog.setChange(entry.id, change)
     log.info("change requested", {id: entry.id, gate, status: change?.status, agentId: change?.agentId})
   }
+
+  historyStore.record(userDigest, {
+    kind: "flag",
+    at: entry.at,
+    id: entry.id,
+    note,
+    change: analysis.change?.status,
+  })
 
   metrics.increment("feedback_outcomes_total", {outcome: "ok"})
   metrics.observe("feedback_duration", analysis.totalMs)

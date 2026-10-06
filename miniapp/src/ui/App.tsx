@@ -9,9 +9,17 @@ import type {
   LinkLingoSettings,
   LinkLingoSnapshot,
 } from "../shared/types"
-import {DEFAULT_SETTINGS, HUD_CAPTION_LINES, inputLanguage, knownRankFor, outputLanguage} from "../shared/types"
+import {
+  DEFAULT_SETTINGS,
+  HUD_CAPTION_LINES,
+  inputLanguage,
+  knownRankFor,
+  outputLanguage,
+  REVERSE_KNOWN_RANKS,
+} from "../shared/types"
 import {version as APP_VERSION} from "../../miniapp.json"
 import {LANGUAGES, languageName, languageOptionLabel} from "./lib/languages"
+import {Reports} from "./Reports"
 
 const MODES: Array<{id: LinkLingoMode; label: string}> = [
   {id: "gloss", label: "Words"},
@@ -22,6 +30,7 @@ const MODES: Array<{id: LinkLingoMode; label: string}> = [
 export function App() {
   const isDark = useColorScheme() !== "light"
   const {insets} = useSafeArea()
+  const [view, setView] = useState<"live" | "reports">("live")
   const [displayOpen, setDisplayOpen] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [diagnostics, setDiagnostics] = useState<LinkLingoDiagnostics | null>(null)
@@ -102,6 +111,21 @@ export function App() {
           </div>
         </header>
 
+        <div className="seg view-switch" role="tablist" aria-label="View">
+          {(["live", "reports"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              role="tab"
+              aria-selected={view === v}
+              className={view === v ? "on" : ""}
+              onClick={() => setView(v)}>
+              {v === "live" ? "Live" : "Reports"}
+            </button>
+          ))}
+        </div>
+
+        {view === "reports" ? <Reports /> : (
         <div className="stack">
           <section className="card live-card">
             <div className="card-head">
@@ -113,7 +137,9 @@ export function App() {
             {snap.words.length > 0 ? (
               <div className="words">
                 {snap.words.map((word) => (
-                  <div key={`${word.word}-${word.at}`} className={`word-chip${word.isUpgrade ? " upgrade" : ""}`}>
+                  <div
+                    key={`${word.word}-${word.at}`}
+                    className={`word-chip${word.isUpgrade ? " upgrade" : ""}${word.direction === "reverse" ? " reverse" : ""}`}>
                     <b>{word.word}</b>
                     <small>{word.translation}</small>
                   </div>
@@ -246,6 +272,39 @@ export function App() {
                   setSetting("pinyinDisplay", "link:set-pinyin-display", {pinyinDisplay}, pinyinDisplay)
                 }
               />
+              <ToggleRow
+                title={`Gloss my ${gloss} too`}
+                detail={`When you fall back to ${gloss} mid-sentence, show it in ${heard}`}
+                checked={settings.reverseGloss}
+                disabled={settings.mode === "translation"}
+                onChange={(reverseGloss) =>
+                  setSetting("reverseGloss", "link:set-reverse-gloss", {reverseGloss}, reverseGloss)
+                }
+              />
+              {settings.reverseGloss && settings.mode !== "translation" ? (
+                <label className="row">
+                  <span className="row-copy">
+                    <strong>{`Skip the most common ${gloss}`}</strong>
+                    <span>Words this frequent are never glossed back</span>
+                  </span>
+                  <select
+                    className="select"
+                    style={{width: 132, minHeight: 44, fontSize: 14}}
+                    value={settings.reverseKnownRank}
+                    onChange={(e) =>
+                      setSetting(
+                        "reverseKnownRank",
+                        "link:set-reverse-known-rank",
+                        {reverseKnownRank: Number(e.target.value)},
+                        Number(e.target.value),
+                      )
+                    }>
+                    {REVERSE_KNOWN_RANKS.map((rank) => (
+                      <option key={rank} value={rank}>{`Top ${rank.toLocaleString()}`}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </div>
           </section>
 
@@ -354,6 +413,7 @@ export function App() {
             </button>
           </div>
         </div>
+        )}
         <p className="app-version">LinkLingo {APP_VERSION}</p>
       </div>
     </div>

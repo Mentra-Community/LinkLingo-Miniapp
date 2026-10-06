@@ -8,6 +8,7 @@ import {DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, PutObjectC
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
 import {feedbackLog, type FeedbackEntry} from "./feedback-log"
+import {HISTORY_RETENTION_DAYS, historyStore} from "./history-store"
 import {reviewLog, type ReviewEntry} from "./review-log"
 import {
   flushTape,
@@ -21,7 +22,7 @@ import {transcriptLog, type TranscriptEntry} from "./transcript-log"
 
 const log = createLogger("tape")
 
-class S3ObjectStore implements ObjectStore {
+export class S3ObjectStore implements ObjectStore {
   private readonly client: S3Client
 
   constructor(
@@ -127,12 +128,20 @@ export async function startTapeStore(): Promise<void> {
   }
   const region = process.env.AWS_REGION || process.env.LINKLINGO_TAPE_REGION || "us-west-2"
   bucketName = bucket
-  const store = new ObjectTape(new S3ObjectStore(bucket, region))
+  const objects = new S3ObjectStore(bucket, region)
+  const store = new ObjectTape(objects)
   try {
     const loaded = await store.loadAll()
     const removed = await store.prune()
     install(store)
     hydrate(loaded)
+    // Same bucket, separate `history/` prefix the 24h pruner never lists.
+    historyStore.attach(objects)
+    const historyPruned = await historyStore.prune().catch((error) => {
+      log.warn("history prune failed", {error})
+      return 0
+    })
+    log.info("history ledger ready", {retentionDays: HISTORY_RETENTION_DAYS, pruned: historyPruned})
     log.info("tape store ready", {
       bucket,
       region,
@@ -149,8 +158,11 @@ export async function startTapeStore(): Promise<void> {
   }
 }
 
+let lastHistoryPruneAt = Date.now()
+
 /** Pick up rows the previous pod wrote after this one had already loaded. */
 export async function refreshTape(): Promise<void> {
+  await historyStore.flush()
   if (!tape) return
   try {
     hydrate(await tape.loadAll())
@@ -158,8 +170,12 @@ export async function refreshTape(): Promise<void> {
   } catch (error) {
     log.warn("tape refresh failed", {error})
   }
+  if (Date.now() - lastHistoryPruneAt > 86_400_000) {
+    lastHistoryPruneAt = Date.now()
+    await historyStore.prune().catch((error) => log.warn("history prune failed", {error}))
+  }
 }
 
 export async function stopTapeStore(): Promise<void> {
-  await flushTape()
+  await Promise.all([flushTape(), historyStore.flush()])
 }

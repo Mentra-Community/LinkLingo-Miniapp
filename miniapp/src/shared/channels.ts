@@ -7,6 +7,8 @@ import type {
   LinkLingoProfiling,
   LinkLingoSettings,
   LinkLingoSnapshot,
+  Report,
+  ReportRange,
 } from "./types"
 
 export interface Channels {
@@ -32,10 +34,15 @@ export interface Channels {
   "link:set-pinyin-display": {pinyinDisplay: boolean}
   "link:set-interim-trigger": {interimTrigger: boolean}
   "link:set-fast-cooldown": {fastCooldown: boolean}
+  "link:set-reverse-gloss": {reverseGloss: boolean}
+  "link:set-reverse-known-rank": {reverseKnownRank: number}
   "link:clear": {}
   /** User flags a problem they just saw; background gathers context and asks the analyst. */
   "link:feedback": {requestId: string; note: string}
   "link:feedback-result": {requestId: string; ok: boolean; analysis?: FeedbackAnalysis; error?: string}
+  /** The Reports tab asks the background for one day or week of the ledger. */
+  "link:reports-request": {requestId: string; range: ReportRange; date?: string; tzOffsetMin: number}
+  "link:reports-result": {requestId: string; ok: boolean; report?: Report; error?: string}
 }
 
 declare global {

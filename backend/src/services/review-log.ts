@@ -16,7 +16,7 @@ import {serverBuildId} from "../observability/build-id"
 import {currentRequestContext} from "../observability/context"
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
-import type {GlossClientPrevious, GlossQueueReason, GlossTrigger} from "../shared-types"
+import type {GlossClientPrevious, GlossPurpose, GlossQueueReason, GlossTrigger} from "../shared-types"
 import {mergeById, persistTape} from "./tape-store"
 
 const log = createLogger("review")
@@ -51,6 +51,8 @@ export interface ReviewEntry {
   outputLanguage: string
   proficiency: number
   knownRank: number
+  /** `reverse` rows gloss the learner's own fallback words; absent means forward. */
+  purpose?: GlossPurpose
   /** The transcript window the model saw. */
   context: string
   /** `word:rank` list offered to the model (gloss only). */
@@ -250,7 +252,8 @@ export class ReviewLog {
  */
 export function formatReviewEntry(entry: ReviewEntry): string {
   const when = new Date(entry.at).toISOString().replace("T", " ").slice(0, 19)
-  const head = `[${when}] ${entry.op} ${entry.inputLanguage}→${entry.outputLanguage} p=${entry.proficiency} known=${entry.knownRank} ${entry.outcome} ${entry.totalMs}ms`
+  const op = entry.purpose === "reverse" ? `${entry.op}(reverse)` : entry.op
+  const head = `[${when}] ${op} ${entry.inputLanguage}→${entry.outputLanguage} p=${entry.proficiency} known=${entry.knownRank} ${entry.outcome} ${entry.totalMs}ms`
   const lines = [head, `  heard:      ${entry.context || "(empty)"}`]
   if (entry.candidates) lines.push(`  candidates: ${entry.candidates.join(", ") || "(none)"}`)
   if (entry.raw != null) lines.push(`  model:      ${entry.raw.replace(/\s+/g, " ").trim()}`)

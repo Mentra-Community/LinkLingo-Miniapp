@@ -15,6 +15,7 @@ import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
 import type {ShadowInterimObservation, TranscriptDisposition, TranscriptRequest} from "../shared-types"
 import {candidateWords, knownRankFor} from "./frequency"
+import {historyStore} from "./history-store"
 import {digest} from "./review-log"
 import {mergeById, persistTape} from "./tape-store"
 
@@ -116,6 +117,7 @@ export class TranscriptLog {
     if (input.asrLeadMs != null) metrics.observe("gloss_asr_lead", input.asrLeadMs)
     if (this.file) this.append(entry)
     persistTape("transcript", entry)
+    if (text) historyStore.countHeard(entry.user, now)
     return entry
   }
 

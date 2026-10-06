@@ -15,6 +15,7 @@ import {preconnect, requestGloss, requestUpgrade} from "./backend"
 import {glossTelemetry} from "./glossTelemetry"
 import {createLogger, diagnostics} from "./observability"
 import {hasRareToken, rareTokens} from "./prefilter"
+import {ReverseGlosser} from "./ReverseGlosser"
 import {ShadowInterimDetector} from "./shadowInterim"
 import type {TranslationCache} from "./translationCache"
 import {hasSentenceEnd, stripIncompleteLastWord, type TranscriptBuffer} from "./TranscriptBuffer"
@@ -93,13 +94,16 @@ export class GlossEngine {
   private upgradeQueue: GlossedWord[] = []
   private upgradeTimer: ReturnType<typeof setTimeout> | null = null
   private shownUpgrade: GlossedWord | null = null
+  private readonly reverse: ReverseGlosser
 
   constructor(
     private readonly session: MiniappSession,
     private readonly buffer: TranscriptBuffer,
     private readonly callbacks: GlossEngineCallbacks,
     private readonly cache: TranslationCache | null = null,
-  ) {}
+  ) {
+    this.reverse = new ReverseGlosser(session, (words) => callbacks.onWords(words))
+  }
 
   consider(
     text: string,
@@ -109,11 +113,15 @@ export class GlossEngine {
   ): TranscriptDisposition | null {
     if (settings.mode === "translation") return isFinal ? "translation_mode" : null
     const now = Date.now()
-    // Speech in the learner's own language has nothing to gloss. Skipping it
-    // here saves the round trip; the backend applies the same filter per
-    // token for mixed contexts.
+    // Fallback words in the language the learner reads go the other way. Run
+    // on every final, so "那个 museum" gets both its Chinese and its English.
+    const reversed = isFinal && this.reverse.consider(text, settings, utteranceId)
+    // Speech in the learner's own language has nothing to gloss forward.
+    // Skipping it here saves the round trip; the backend applies the same
+    // filter per token for mixed contexts.
     if (!utteranceInInputLanguage(text, inputLanguage(settings), outputLanguage(settings))) {
       if (isFinal) {
+        if (reversed) return "reverse_gloss"
         diagnostics.increment("engine.gloss_skipped.language_mismatch")
         log.debug("utterance is in the output language; not glossing", {chars: text.trim().length})
         return "skipped_language"
@@ -277,6 +285,7 @@ export class GlossEngine {
     })
     diagnostics.increment("engine.resets")
     this.pending = null
+    this.reverse.reset()
     this.shadow.reset()
     this.clearInterimTimer()
     this.interimText = ""

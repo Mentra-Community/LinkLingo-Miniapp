@@ -10,7 +10,7 @@ import type {
   TranscriptDisposition,
 } from "../shared/types"
 import {inputLanguage, outputLanguage} from "../shared/types"
-import {preconnect, reportTranscript, requestFeedback} from "./backend"
+import {preconnect, reportTranscript, requestFeedback, requestReport} from "./backend"
 import {DisplayRenderer} from "./DisplayRenderer"
 import {GlossEngine} from "./GlossEngine"
 import {toLocale} from "./locales"
@@ -198,7 +198,18 @@ export class LinkLingoController {
     on("link:set-pinyin-display", ({pinyinDisplay}) => void this.patch({pinyinDisplay}))
     on("link:set-interim-trigger", ({interimTrigger}) => void this.patch({interimTrigger}))
     on("link:set-fast-cooldown", ({fastCooldown}) => void this.patch({fastCooldown}))
+    on("link:set-reverse-gloss", ({reverseGloss}) => void this.patch({reverseGloss}))
+    on("link:set-reverse-known-rank", ({reverseKnownRank}) => void this.patch({reverseKnownRank}))
     on("link:feedback", ({requestId, note}) => void this.askAnalyst(requestId, note))
+    on("link:reports-request", ({requestId, range, date, tzOffsetMin}) => {
+      diagnostics.increment("ui.reports")
+      void requestReport(this.session, {range, date, tzOffsetMin}).then((result) =>
+        this.ui.send(
+          "link:reports-result",
+          result.ok ? {requestId, ok: true, report: result.data} : {requestId, ok: false, error: result.message},
+        ),
+      )
+    })
     on("link:clear", () => {
       log.info("hud cleared by user")
       diagnostics.increment("ui.clears")

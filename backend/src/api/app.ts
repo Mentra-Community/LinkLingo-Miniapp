@@ -12,6 +12,7 @@ import {bundleApi, hostedBundleStatus} from "./bundle.api"
 import {feedbackApi} from "./feedback.api"
 import {glossApi} from "./gloss.api"
 import {requestObservability} from "./observability"
+import {reportsApi} from "./reports.api"
 import {reviewApi} from "./review.api"
 import {transcriptApi} from "./transcript.api"
 import {upgradeApi} from "./upgrade.api"
@@ -97,6 +98,8 @@ export function createApp(): Hono {
   app.route("/api/transcript", transcriptApi)
   // "Ask the analyst": user-flagged problem + last 10 min of tape → smarter model.
   app.route("/api/feedback", feedbackApi)
+  // The learner's own day/week dashboard, from the 90-day word ledger.
+  app.route("/api/reports", reportsApi)
   // Last ~24h of model input/output for prompt tuning. Only mounted in effect
   // when LINKLINGO_REVIEW_TOKEN is set; see `bun run review`.
   app.route("/api/review", reviewApi)

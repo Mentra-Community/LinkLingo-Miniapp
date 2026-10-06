@@ -38,12 +38,24 @@ export interface GlossClientTelemetry {
   previousRequestMetrics?: GlossClientPrevious
 }
 
+export type GlossPurpose = "forward" | "reverse"
+
 export interface GlossRequest {
   conversationContext: string
   inputLanguage: string
   outputLanguage: string
   fluencyLevel: number
   recentWords?: string[]
+  /**
+   * `reverse` glosses the output-language words a learner fell back to (English
+   * in a Chinese session) into the language they are learning. It sends
+   * input/output swapped plus its own rank cut and pick budget.
+   */
+  purpose?: GlossPurpose
+  /** Overrides the rank cut derived from `fluencyLevel`. Clamped server-side. */
+  knownRank?: number
+  /** Overrides the pick budget derived from `fluencyLevel`. Clamped to 1–3. */
+  maxWords?: number
   /** Per-request client identity and phase timings; absent on pre-1.0.16 phones. */
   client?: GlossClientTelemetry
   /**
@@ -114,6 +126,8 @@ export type TranscriptDisposition =
    * calls that previously paid a round trip to learn the same thing.
    */
   | "skipped_no_candidates"
+  /** Speech in the output language, glossed back into the language being learned. */
+  | "reverse_gloss"
   | "translation_mode"
   | "heard"
 
@@ -137,6 +151,46 @@ export interface FeedbackAnalysis {
   totalMs: number
   /** Set when the comment asked for a change and a coding agent was started for it. */
   change?: CodeChange
+}
+
+export type ReportRange = "day" | "week"
+
+export interface ReportWord {
+  word: string
+  translation: string
+  count: number
+  lastAt: number
+}
+
+export interface ReportDay {
+  /** Local calendar date, YYYY-MM-DD. */
+  date: string
+  words: number
+  fallbacks: number
+  heard: number
+}
+
+/** One day or one week of the learner's ledger, grouped by the phone's local day. */
+export interface Report {
+  range: ReportRange
+  /** Local date the period ends on. */
+  date: string
+  tzOffsetMin: number
+  from: number
+  to: number
+  totals: {wordsShown: number; uniqueWords: number; newWords: number; heard: number; fallbacks: number; flags: number}
+  days: ReportDay[]
+  topWords: ReportWord[]
+  newWords: ReportWord[]
+  mistakes: {
+    /** Words they reached for in the language they already read. */
+    fallbacks: ReportWord[]
+    /** Glossed 3+ times in the period: not sticking yet. */
+    repeats: ReportWord[]
+    flags: Array<{at: number; note: string; change?: string}>
+    /** From the daily review; may be another speaker. */
+    review: Array<{at: number; said: string; better: string; rule: string; confidence: "high" | "medium" | "low"}>
+  }
 }
 
 /** A coding agent run started from the ask box. */

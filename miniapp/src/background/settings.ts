@@ -3,6 +3,7 @@ import type {MiniappSession} from "@mentra/miniapp/background"
 import {
   DEFAULT_SETTINGS,
   HUD_CAPTION_LINES,
+  REVERSE_KNOWN_RANKS,
   SETTINGS_SCHEMA_VERSION,
   type LinkLingoMode,
   type LinkLingoSettings,
@@ -61,6 +62,10 @@ export function normalizeSettings(settings: LinkLingoSettings): LinkLingoSetting
     mode: modes.includes(settings.mode) ? settings.mode : "gloss-captions",
     displayLines: clamp(settings.displayLines, 1, HUD_CAPTION_LINES),
     displayWidth: settings.displayWidth === 0 || settings.displayWidth === 2 ? settings.displayWidth : 1,
+    reverseGloss: settings.reverseGloss !== false,
+    reverseKnownRank: (REVERSE_KNOWN_RANKS as readonly number[]).includes(settings.reverseKnownRank)
+      ? settings.reverseKnownRank
+      : DEFAULT_SETTINGS.reverseKnownRank,
   }
 }
 

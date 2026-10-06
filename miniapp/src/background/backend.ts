@@ -4,6 +4,8 @@ import type {
   FeedbackAnalysis,
   GlossedWord,
   LinkLingoProfiling,
+  Report,
+  ReportRange,
   ShadowInterimObservation,
   TranscriptDisposition,
 } from "../shared/types"
@@ -94,6 +96,9 @@ export async function requestGloss(
     outputLanguage: string
     fluencyLevel: number
     recentWords: string[]
+    purpose?: "forward" | "reverse"
+    knownRank?: number
+    maxWords?: number
   },
   attempt: GlossAttempt,
 ): Promise<BackendResult<GlossApiResult>> {
@@ -237,6 +242,29 @@ export async function requestFeedback(
   } catch (err) {
     diagnostics.increment("feedback.transport_error")
     log.error("feedback transport failure", {url: BACKEND_URL, error: err as Error})
+    return {ok: false, message: "Cannot reach LinkLingo backend"}
+  }
+}
+
+/** One day or week of the learner's ledger, grouped by the phone's own calendar day. */
+export async function requestReport(
+  session: MiniappSession,
+  query: {range: ReportRange; date?: string; tzOffsetMin: number},
+): Promise<BackendResult<Report>> {
+  const started = Date.now()
+  diagnostics.increment("reports.requests")
+  const params = new URLSearchParams({range: query.range, tzOffsetMin: String(query.tzOffsetMin)})
+  if (query.date) params.set("date", query.date)
+  try {
+    const res = await session.auth.fetch(url(`/api/reports?${params}`), {method: "GET"})
+    const durationMs = Date.now() - started
+    diagnostics.observe("reports.roundTrip", durationMs)
+    if (!res.ok) return {ok: false, message: await describeFailure("reports", res, durationMs)}
+    diagnostics.increment("reports.ok")
+    return {ok: true, data: (await res.json()) as Report}
+  } catch (err) {
+    diagnostics.increment("reports.transport_error")
+    log.error("reports transport failure", {url: BACKEND_URL, error: err as Error})
     return {ok: false, message: "Cannot reach LinkLingo backend"}
   }
 }

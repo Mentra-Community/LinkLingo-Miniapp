@@ -26,7 +26,7 @@ mock.module("./gemini", () => ({
   },
 }))
 
-const {glossService, GLOSS_PROMPT_VERSION} = await import("./gloss.service")
+const {glossService, GLOSS_PROMPT_VERSION, REVERSE_HINT, resolveGlossLimits} = await import("./gloss.service")
 const {reviewLog} = await import("./review-log")
 
 const ZH = "我们今天下午要去参观博物馆，然后在附近的餐厅吃晚饭。"
@@ -183,6 +183,56 @@ describe("glossService", () => {
       expect(reviewLog.list().map((e) => e.outcome)).toEqual(["no_candidates"])
       await glossService.gloss({...request(10), conversationContext: ""})
       expect(reviewLog.list()).toHaveLength(1)
+    })
+  })
+
+  describe("reverse gloss", () => {
+    /** What a Chinese learner says when they cannot find the word. */
+    const FALLBACK = "我想去那个 museum 看看 exhibition"
+    const reverse = (overrides: Record<string, unknown> = {}) => ({
+      conversationContext: FALLBACK,
+      inputLanguage: "English",
+      outputLanguage: "Chinese",
+      fluencyLevel: 33,
+      purpose: "reverse" as const,
+      knownRank: 500,
+      maxWords: 2,
+      ...overrides,
+    })
+
+    test("offers the English the speaker reached for, cut at the requested rank", async () => {
+      await glossService.gloss(reverse())
+      const user = calls[0].user
+      expect(user).toContain("KNOWN=500 MAX=2")
+      const line = user.split("\n").find((l) => l.startsWith("Candidates:"))!
+      expect(line).toMatch(/museum:\d+/)
+      // The Chinese around it is the output script here, so it is never offered.
+      expect(line).not.toMatch(/想|看看/)
+    })
+
+    test("glosses English into Chinese with pinyin and records the purpose", async () => {
+      reply = '{"words":[{"word":"museum","translation":"博物馆"}]}'
+      const result = await glossService.gloss(reverse())
+      expect(result.words).toHaveLength(1)
+      expect(result.words[0].word).toBe("museum")
+      expect(result.words[0].translation).toContain("博物馆")
+      expect(result.words[0].translation).toContain("bó")
+      expect(reviewLog.list()[0].purpose).toBe("reverse")
+    })
+
+    test("the hint rides in the user message only, so the prompt hash is unchanged", async () => {
+      await glossService.gloss(reverse())
+      expect(calls[0].user).toContain(REVERSE_HINT)
+      expect(calls[0].system).not.toContain(REVERSE_HINT)
+      calls = []
+      await glossService.gloss(request(10))
+      expect(calls[0].user).not.toContain(REVERSE_HINT)
+    })
+
+    test("client overrides cannot leave the tuned range", () => {
+      expect(resolveGlossLimits({fluencyLevel: 33, knownRank: 5, maxWords: 9})).toEqual({knownRank: 100, maxWords: 3})
+      expect(resolveGlossLimits({fluencyLevel: 33, knownRank: 1e9, maxWords: 0})).toEqual({knownRank: 60_000, maxWords: 1})
+      expect(resolveGlossLimits({fluencyLevel: 10})).toEqual({knownRank: knownRankFor(10), maxWords: 3})
     })
   })
 })

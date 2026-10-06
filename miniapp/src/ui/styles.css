@@ -276,6 +276,12 @@ textarea {
   background: var(--accent-soft);
 }
 
+/* A word the learner reached for in their own language, shown in the one they are learning. */
+.word-chip.reverse {
+  border-color: color-mix(in srgb, var(--busy) 45%, var(--line));
+  background: color-mix(in srgb, var(--busy) 12%, var(--card-hi));
+}
+
 .word-chip b {
   font-size: 16px;
   letter-spacing: -0.02em;
@@ -681,4 +687,158 @@ textarea {
   color: var(--bad);
   background: var(--bad-soft);
   border-color: transparent;
+}
+
+/* ---- Reports -------------------------------------------------------------- */
+
+.seg.view-switch {
+  grid-template-columns: repeat(2, 1fr);
+  margin-bottom: 14px;
+}
+
+.stack .card > .seg:only-child,
+.stack .card > .seg:first-child {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.period {
+  display: grid;
+  grid-template-columns: 48px 1fr 48px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  text-align: center;
+}
+
+.period .ghost {
+  min-height: 40px;
+  color: var(--text);
+  font-size: 20px;
+}
+
+.period .ghost:disabled {
+  opacity: 0.35;
+}
+
+.card.stale {
+  opacity: 0.6;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--card-hi);
+  border: 1px solid var(--line);
+}
+
+.tile b {
+  font-size: 24px;
+  letter-spacing: -0.03em;
+}
+
+.tile span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.bars {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.bar-track {
+  display: flex;
+  flex-direction: column-reverse;
+  width: 100%;
+  height: 88px;
+  border-radius: 8px;
+  background: var(--bg-wash);
+  overflow: hidden;
+}
+
+.bar {
+  width: 100%;
+  background: var(--accent);
+}
+
+.bar.fallback {
+  background: var(--busy);
+}
+
+.report-group {
+  margin-top: 14px;
+}
+
+.report-group:first-of-type {
+  margin-top: 4px;
+}
+
+.report-group h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.report-group h3 + .hint {
+  margin: -4px 0 8px;
+}
+
+.word-chip .count {
+  margin-left: 6px;
+  color: var(--accent);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.report-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--card-hi);
+  border: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.report-list small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.report-list s {
+  color: var(--bad);
+}
+
+.report-list .confidence-low {
+  opacity: 0.7;
 }

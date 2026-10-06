@@ -3,6 +3,7 @@ import {serverBuildId} from "./observability/build-id"
 import {createLogger, logFormat, logLevel} from "./observability/logger"
 import {metrics} from "./observability/metrics"
 import {apiKeyFingerprint, allowMockLlm, resolveApiKeySource, resolveModel} from "./services/gemini"
+import {startDailyReviews, stopDailyReviews} from "./services/daily-review"
 import {startLlmKeepalive, stopLlmKeepalive} from "./services/llm-keepalive"
 import {refreshTape, startTapeStore, stopTapeStore} from "./services/tape-s3"
 import {allowUnauth} from "./api/auth"
@@ -51,6 +52,7 @@ export async function startBackend(opts: StartBackendOptions = {}): Promise<Back
   // the interval below catches anything still in flight from the previous pod.
   void startTapeStore()
   startLlmKeepalive()
+  startDailyReviews()
   // The previous pod can still be flushing while this one boots. A second
   // load picks up those rows without waiting for the next eviction.
   const refresh = setInterval(() => void refreshTape(), 60_000)
@@ -63,6 +65,7 @@ export async function startBackend(opts: StartBackendOptions = {}): Promise<Back
     async stop() {
       clearInterval(refresh)
       stopLlmKeepalive()
+      stopDailyReviews()
       await stopTapeStore()
       server.stop()
     },

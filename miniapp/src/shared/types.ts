@@ -20,7 +20,17 @@ export interface LinkLingoSettings {
   interimTrigger: boolean
   /** Short gloss cooldown with a new-content bypass, versus the legacy 2s floor. */
   fastCooldown: boolean
+  /**
+   * Also gloss the words the learner falls back to in the language they read
+   * ("那个 museum") into the language they are learning.
+   */
+  reverseGloss: boolean
+  /** Fallback words this common are skipped; the learner has these in any language. */
+  reverseKnownRank: number
 }
+
+/** Choices for "skip the most common English"; the first match wins when a stored value is off-list. */
+export const REVERSE_KNOWN_RANKS = [300, 500, 1000, 2000] as const
 
 export const SETTINGS_SCHEMA_VERSION = 3
 
@@ -43,12 +53,16 @@ export const DEFAULT_SETTINGS: LinkLingoSettings = {
   pinyinDisplay: true,
   interimTrigger: true,
   fastCooldown: true,
+  reverseGloss: true,
+  reverseKnownRank: 500,
 }
 
 export interface GlossedWord {
   word: string
   translation: string
   isUpgrade?: boolean
+  /** `reverse`: a word the learner fell back to, glossed into the language they are learning. */
+  direction?: "reverse"
   at: number
 }
 
@@ -196,6 +210,34 @@ export interface FeedbackAnalysis {
   totalMs: number
 }
 
+export type ReportRange = "day" | "week"
+
+export interface ReportWord {
+  word: string
+  translation: string
+  count: number
+  lastAt: number
+}
+
+/** Mirrors the backend `Report`: one local day or week of the learner's word ledger. */
+export interface Report {
+  range: ReportRange
+  date: string
+  tzOffsetMin: number
+  from: number
+  to: number
+  totals: {wordsShown: number; uniqueWords: number; newWords: number; heard: number; fallbacks: number; flags: number}
+  days: Array<{date: string; words: number; fallbacks: number; heard: number}>
+  topWords: ReportWord[]
+  newWords: ReportWord[]
+  mistakes: {
+    fallbacks: ReportWord[]
+    repeats: ReportWord[]
+    flags: Array<{at: number; note: string; change?: string}>
+    review: Array<{at: number; said: string; better: string; rule: string; confidence: "high" | "medium" | "low"}>
+  }
+}
+
 /** Why a final utterance did or did not go to the gloss backend. */
 export type TranscriptDisposition =
   | "queued_gloss"
@@ -205,5 +247,6 @@ export type TranscriptDisposition =
   | "skipped_cooldown"
   /** The phone decided locally that nothing here is above the learner's vocabulary. */
   | "skipped_no_candidates"
+  | "reverse_gloss"
   | "translation_mode"
   | "heard"

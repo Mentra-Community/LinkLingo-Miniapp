@@ -262,6 +262,34 @@ bun run review:doppler -- --transcripts
 bun run review:doppler -- --transcripts --save backend/data/transcripts.jsonl
 ```
 
+### English fallbacks
+
+In a Chinese→English session the English you fall back to ("我想去那个
+museum") is glossed back into Chinese, on the same HUD rows, marked blue in
+the WebView. The phone pulls Latin words out of each final
+(`miniapp/src/background/ReverseGlosser.ts`), skips the top 500 English
+words (Learning → "Skip the most common English": 300/500/1000/2000), and
+sends a second gloss with `purpose: "reverse"`, the pair swapped and its own
+`knownRank` and `maxWords`. Off with "Gloss my English too". Only works for
+pairs whose scripts differ.
+
+### Reports
+
+The WebView's Reports tab shows a day or a week: words shown, new words,
+the words you reached for in English, words glossed 3+ times, comments you
+flagged, and possible errors from a daily Opus review. It reads
+`GET /api/reports?range=day|week&tzOffsetMin=&date=`, always for the
+signed-in user only.
+
+The data is a separate word ledger in the tape bucket under `history/`,
+kept 90 days (`backend/src/services/history-store.ts`). It holds words,
+translations, hourly counts of heard sentences, ask-box notes, and the
+review's findings, but no transcripts. The raw tape still expires after 24h.
+The daily review (`backend/src/services/daily-review.ts`) runs before that:
+once per user per ~20h, it reads the last 24h of input-language speech and
+keeps at most 8 findings of at most 20 characters each. The glasses cannot
+tell your voice from anyone else's, so the findings are labelled as guesses.
+
 ### Comment box (real-time)
 
 Under the live rows in the WebView there is a comment box. Type anything about

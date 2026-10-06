@@ -51,6 +51,8 @@ export function mentraAuthMiddleware() {
         packageName: PACKAGE_NAME,
         claims: {},
       })
+      // Per-user features (the reports ledger) need an identity even locally.
+      noteAuthenticatedUser("local-dev")
       metrics.increment("auth_results_total", {outcome: "bypassed"})
       await next()
     }
