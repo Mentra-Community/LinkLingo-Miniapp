@@ -44,6 +44,10 @@ describe("agent prompt", () => {
     expect(prompt).toContain("miniapp/miniapp.json")
     expect(prompt).toContain("porter.*.yaml")
     expect(prompt).toContain("Requested-from: ask-box abc-1")
+    // Steers toward changes that reach a pinned install without a reinstall.
+    expect(prompt).toContain("Prefer the backend")
+    expect(prompt).toContain("app-config.ts")
+    expect(prompt).toContain("prefs.<name>")
   })
 })
 

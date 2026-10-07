@@ -57,7 +57,12 @@ export function buildAgentPrompt(input: {note: string; instruction: string; feed
     "",
     `Instruction from the analyst, who saw their recent speech and gloss tape:\n"""\n${input.instruction}\n"""`,
     "",
-    "Make the smallest change that does what they asked. Rules:",
+    "Make the smallest change that does what they asked. Their install is pinned to one version, so anything under `miniapp/` only reaches them after they reinstall, while backend changes are live on their next launch. Prefer the backend:",
+    "- New or changed tab or section: blocks in `backend/src/services/report-view.ts` / `views.ts`, tabs in `screens` in `backend/src/services/app-config.ts`.",
+    "- New setting: a row in `SETTINGS` in `app-config.ts`, bound to a key in `SETTABLE_KEYS` (`miniapp/src/shared/serverContract.ts`) or to `prefs.<name>`, read on the backend with `currentRequestContext()?.prefs`.",
+    "- Gloss timing: `TUNABLES` in `app-config.ts`, within the ranges in `serverContract.ts`. Prompts, word selection and filtering live in `backend/src/services/`.",
+    "- Only touch `miniapp/` when the backend genuinely cannot do it (a new block type, HUD drawing, phone-side routing), and say so in your reply.",
+    "Rules:",
     "- You are on `main`. Commit there and push to `origin main`; do not open a pull request. The push deploys to the dev server.",
     "- Run `bun install`, then `bun run typecheck` and `bun run test`. Push only if both pass. If you cannot make them pass, push nothing and explain why.",
     "- Add or update a test that shows the new behaviour.",
@@ -143,5 +148,5 @@ export function describeChange(gate: CodeAgentGate, change?: CodeChange): string
   if (gate === "not_allowed") return "This account cannot send changes to be built."
   if (gate === "busy") return "Another change is still being built. Send this one again when it finishes."
   if (!change || change.status === "failed") return `The coding agent could not start: ${change?.detail ?? "unknown error"}.`
-  return "Sent to a coding agent. Backend changes reach the dev server about 10 minutes after it pushes; glasses-side changes also need the new install QR."
+  return "Sent to a coding agent. If it only changes the backend, you get it the next time you open LinkLingo, about 10 minutes after it pushes. If it has to change the app itself, it will say so and you will need to scan the new install QR."
 }
