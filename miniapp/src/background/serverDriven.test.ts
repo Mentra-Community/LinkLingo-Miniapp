@@ -3,7 +3,7 @@ import {afterEach, describe, expect, test} from "bun:test"
 import {DEFAULT_CONFIG} from "../shared/defaultConfig"
 import {DEFAULT_TUNABLES} from "../shared/serverContract"
 import {DEFAULT_SETTINGS} from "../shared/types"
-import {holds, settingValue} from "../ui/Blocks"
+import {canBind, holds, settingValue} from "../ui/Blocks"
 import {validConfig} from "./remoteConfig"
 import {cleanPrefs, normalizeSettings, settingPatch} from "./settings"
 import {applyTunables, resetTunables, tunable} from "./tunables"
@@ -52,6 +52,13 @@ describe("server-driven settings", () => {
   test("a server-offered reverse cut is clamped instead of rejected", () => {
     expect(normalizeSettings({...DEFAULT_SETTINGS, reverseKnownRank: 5}).reverseKnownRank).toBe(100)
     expect(normalizeSettings({...DEFAULT_SETTINGS, reverseKnownRank: 1500}).reverseKnownRank).toBe(1500)
+  })
+
+  test("a row bound to a key this build cannot save is not drawn at all", () => {
+    expect(canBind("reverseGloss", DEFAULT_SETTINGS)).toBe(true)
+    expect(canBind("prefs.dailyGoal", DEFAULT_SETTINGS)).toBe(true)
+    expect(canBind("sourceLanguage", DEFAULT_SETTINGS)).toBe(false)
+    expect(canBind("prefs.bad key", DEFAULT_SETTINGS)).toBe(false)
   })
 
   test("rows read and show/hide from built-in settings and prefs alike", () => {

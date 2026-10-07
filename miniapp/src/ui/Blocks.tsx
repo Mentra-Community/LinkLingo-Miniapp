@@ -1,4 +1,5 @@
 import type {Condition, SettingBlock, SettingValue, ViewBlock} from "../shared/blocks"
+import {SETTABLE_KEYS} from "../shared/serverContract"
 import type {LinkLingoSettings} from "../shared/types"
 
 /** What a block may read and change. Settings are read-only here; writes go through `onSet`. */
@@ -156,7 +157,19 @@ export function SettingRows({blocks, ctx}: {blocks: ViewBlock[]; ctx: BlockConte
   )
 }
 
+/**
+ * Only rows this build can actually save. A row bound to anything else would
+ * flip on screen and then be refused by the background, so it is not shown.
+ */
+export function canBind(key: string, settings: LinkLingoSettings): boolean {
+  if (key.startsWith("prefs.")) return /^prefs\.[A-Za-z][A-Za-z0-9_]{0,40}$/.test(key)
+  if (!(SETTABLE_KEYS as readonly string[]).includes(key)) return false
+  const current = (settings as unknown as Record<string, unknown>)[key]
+  return typeof current === "boolean" || typeof current === "number" || typeof current === "string"
+}
+
 function SettingRow({block, ctx}: {block: SettingBlock; ctx: BlockContext}) {
+  if (!canBind(block.key, ctx.settings)) return null
   if (block.visibleWhen && !holds(block.visibleWhen, ctx.settings)) return null
   const disabled = holds(block.disabledWhen, ctx.settings)
   const value = settingValue(ctx.settings, block.key)

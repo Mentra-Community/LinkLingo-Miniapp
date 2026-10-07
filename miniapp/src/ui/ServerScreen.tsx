@@ -29,6 +29,15 @@ function periodLabel(range: Range, date: string): string {
   return date === today ? "Last 7 days" : `${fmt(shiftDate(date, -6))} – ${fmt(date)}`
 }
 
+/** The background's failure strings are written for logs; this is the one a learner reads. */
+function friendlyError(message: string): string {
+  if (/cannot reach/i.test(message)) return "No connection to LinkLingo. Check your phone's internet and try again."
+  if (/sign-in/i.test(message)) return "Your sign-in expired. Reopen LinkLingo from the Mentra app."
+  if (/\((5\d\d)\)/.test(message)) return "The server had a problem. Try again in a moment."
+  if (/\(404\)/.test(message)) return "This screen was removed. It disappears the next time you open LinkLingo."
+  return message
+}
+
 /**
  * Any tab the server lists in its config. The phone draws the blocks the
  * server returns; with `period` it adds the day/week picker and sends it
@@ -40,6 +49,7 @@ export function ServerScreen({screen, ctx}: {screen: Screen; ctx: BlockContext})
   const [view, setView] = useState<View | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
@@ -56,7 +66,7 @@ export function ServerScreen({screen, ctx}: {screen: Screen; ctx: BlockContext})
       : {}
     mentra.send("link:view-request", {requestId, screen: screen.id, query})
     return off
-  }, [screen.id, screen.period, range, date])
+  }, [screen.id, screen.period, range, date, attempt])
 
   const step = range === "week" ? 7 : 1
 
@@ -97,8 +107,13 @@ export function ServerScreen({screen, ctx}: {screen: Screen; ctx: BlockContext})
       {error ? (
         <section className="card">
           <div className="diag-error">
-            <strong>{`No ${screen.title.toLowerCase()}`}</strong>
-            <span>{error}</span>
+            <strong>{`Couldn't load ${screen.title}`}</strong>
+            <span>{friendlyError(error)}</span>
+          </div>
+          <div className="actions">
+            <button type="button" className="ghost" disabled={loading} onClick={() => setAttempt((n) => n + 1)}>
+              {loading ? "Trying…" : "Try again"}
+            </button>
           </div>
         </section>
       ) : view ? (

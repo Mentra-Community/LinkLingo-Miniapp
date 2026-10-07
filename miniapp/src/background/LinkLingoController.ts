@@ -202,6 +202,8 @@ export class LinkLingoController {
       if (!partial) {
         diagnostics.increment("settings.rejected_remote_key")
         log.warn("ignored a setting this build cannot change", {key})
+        // The WebView may already show the change; put it back in step.
+        this.ui.send("link:settings-update", this.settings)
         return
       }
       void this.patch(partial)
