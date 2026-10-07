@@ -3,11 +3,11 @@
 #   porter apply -f ./porter.dev.yaml
 
 version: v2
-name: linklingo-miniapp-dev
 
+# Application configuration is synced directly from Doppler.
 envGroups:
-  - linklingo-dev
-  - linklingo-openrouter-dev
+  - linklingo-dev-doppler
+name: linklingo-miniapp-dev
 
 build:
   method: docker
@@ -17,9 +17,6 @@ build:
 # App-level env doubles as build args for the ARGs declared in the Dockerfile.
 # The miniapp bundle inlines this origin at build time, so it must name the
 # environment serving it. Verify with GET /healthz → miniapp.backendUrl.
-env:
-  MENTRA_PUBLIC_LINKLINGO_BACKEND_URL: https://linklingo-miniapp-dev.mentraglass.com
-
 services:
   - name: backend
     type: web
@@ -38,28 +35,6 @@ services:
       httpPath: /healthz
       timeoutSeconds: 3
       initialDelaySeconds: 10
-    env:
-      NODE_ENV: production
-      PORT: "80"
-      PACKAGE_NAME: com.mentra.link
-      MENTRA_AUTH_JWKS_URL: https://core.mentraglass.com/.well-known/jwks.json
-      # Live gloss path. Benchmarked against the corpus (backend/scripts/
-      # bench-gloss-models.ts): 328ms p50 / 430ms p95 / 92% recall, versus
-      # 755ms / 976ms / 86% on google/gemini-3.5-flash-lite. The provider pin is
-      # load-bearing — unpinned, OpenRouter routes by price and p95 hits 1206ms.
-      OPENROUTER_MODEL: openai/gpt-oss-120b
-      OPENROUTER_PROVIDER: cerebras
-      # WebView "ask" box. Separate from the live gloss pin: Cerebras does not
-      # serve Opus, and this call is allowed to take seconds.
-      OPENROUTER_ANALYST_MODEL: anthropic/claude-opus-5.5
-      OPENROUTER_ANALYST_PROVIDER: anthropic
-      AWS_REGION: us-west-2
-      # Ask-box change requests become a Cursor cloud agent that pushes here.
-      # Off until CURSOR_API_KEY (secret) and LINKLINGO_CODE_AGENT_USERS
-      # (Mentra user ids) are set in the linklingo-dev env group.
-      LINKLINGO_CODE_AGENT_REPO: https://github.com/Mentra-Community/LinkLingo-Miniapp
-      # 24h tape. Survives the Karpenter eviction that wipes pod memory.
-      LINKLINGO_TAPE_BUCKET: porter-15081-linklingo-tape-fa86de16
     connections:
       - type: awsRole
         role: porter-s3-7a9d09e4
