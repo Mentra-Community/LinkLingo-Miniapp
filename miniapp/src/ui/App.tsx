@@ -15,11 +15,13 @@ import {
   inputLanguage,
   knownRankFor,
   outputLanguage,
-  REVERSE_KNOWN_RANKS,
 } from "../shared/types"
+import type {SettingValue} from "../shared/blocks"
+import {DEFAULT_CONFIG} from "../shared/defaultConfig"
 import {version as APP_VERSION} from "../../miniapp.json"
+import {SettingRows, type BlockContext} from "./Blocks"
 import {LANGUAGES, languageName, languageOptionLabel} from "./lib/languages"
-import {Reports} from "./Reports"
+import {ServerScreen} from "./ServerScreen"
 
 const MODES: Array<{id: LinkLingoMode; label: string}> = [
   {id: "gloss", label: "Words"},
@@ -30,7 +32,7 @@ const MODES: Array<{id: LinkLingoMode; label: string}> = [
 export function App() {
   const isDark = useColorScheme() !== "light"
   const {insets} = useSafeArea()
-  const [view, setView] = useState<"live" | "reports">("live")
+  const [view, setView] = useState("live")
   const [displayOpen, setDisplayOpen] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [diagnostics, setDiagnostics] = useState<LinkLingoDiagnostics | null>(null)
@@ -43,6 +45,7 @@ export function App() {
     processing: false,
     backend: {status: "idle"},
     profiling: null,
+    config: DEFAULT_CONFIG,
   })
 
   useEffect(() => {
@@ -78,6 +81,23 @@ export function App() {
     mentra.send(channel as never, payload as never)
   }
 
+  /** Rows and tabs the server sent; the background vets the key before saving. */
+  const blockCtx: BlockContext = {
+    settings,
+    vars: {input: heard, output: gloss},
+    onSet: (key: string, value: SettingValue) => {
+      setSnap((s) => {
+        const next = key.startsWith("prefs.")
+          ? {...s.settings, prefs: {...s.settings.prefs, [key.slice("prefs.".length)]: value}}
+          : {...s.settings, [key]: value}
+        return {...s, settings: next}
+      })
+      mentra.send("link:set-setting", {key, value})
+    },
+  }
+  const screens = snap.config.screens
+  const activeScreen = screens.find((s) => s.id === view)
+
   const swapPair = () => {
     const nextSource = settings.targetLanguage
     const nextTarget = settings.sourceLanguage
@@ -111,21 +131,27 @@ export function App() {
           </div>
         </header>
 
-        <div className="seg view-switch" role="tablist" aria-label="View">
-          {(["live", "reports"] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              role="tab"
-              aria-selected={view === v}
-              className={view === v ? "on" : ""}
-              onClick={() => setView(v)}>
-              {v === "live" ? "Live" : "Reports"}
-            </button>
-          ))}
-        </div>
+        {screens.length > 0 ? (
+          <div
+            className="seg view-switch"
+            role="tablist"
+            aria-label="View"
+            style={{gridTemplateColumns: `repeat(${screens.length + 1}, 1fr)`}}>
+            {[{id: "live", title: "Live"}, ...screens].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={(activeScreen?.id ?? "live") === tab.id}
+                className={(activeScreen?.id ?? "live") === tab.id ? "on" : ""}
+                onClick={() => setView(tab.id)}>
+                {tab.title}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
-        {view === "reports" ? <Reports /> : (
+        {activeScreen ? <ServerScreen key={activeScreen.id} screen={activeScreen} ctx={blockCtx} /> : (
         <div className="stack">
           <section className="card live-card">
             <div className="card-head">
@@ -272,39 +298,8 @@ export function App() {
                   setSetting("pinyinDisplay", "link:set-pinyin-display", {pinyinDisplay}, pinyinDisplay)
                 }
               />
-              <ToggleRow
-                title={`Gloss my ${gloss} too`}
-                detail={`When you fall back to ${gloss} mid-sentence, show it in ${heard}`}
-                checked={settings.reverseGloss}
-                disabled={settings.mode === "translation"}
-                onChange={(reverseGloss) =>
-                  setSetting("reverseGloss", "link:set-reverse-gloss", {reverseGloss}, reverseGloss)
-                }
-              />
-              {settings.reverseGloss && settings.mode !== "translation" ? (
-                <label className="row">
-                  <span className="row-copy">
-                    <strong>{`Skip the most common ${gloss}`}</strong>
-                    <span>Words this frequent are never glossed back</span>
-                  </span>
-                  <select
-                    className="select"
-                    style={{width: 132, minHeight: 44, fontSize: 14}}
-                    value={settings.reverseKnownRank}
-                    onChange={(e) =>
-                      setSetting(
-                        "reverseKnownRank",
-                        "link:set-reverse-known-rank",
-                        {reverseKnownRank: Number(e.target.value)},
-                        Number(e.target.value),
-                      )
-                    }>
-                    {REVERSE_KNOWN_RANKS.map((rank) => (
-                      <option key={rank} value={rank}>{`Top ${rank.toLocaleString()}`}</option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
+              {/* Rows from the server config (backend/src/services/app-config.ts). */}
+              <SettingRows blocks={snap.config.settings} ctx={blockCtx} />
             </div>
           </section>
 

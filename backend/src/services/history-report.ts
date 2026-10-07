@@ -67,7 +67,13 @@ const byCount = (a: ReportWord, b: ReportWord) => b.count - a.count || b.lastAt 
  * `events` covers the period; `before` covers the 90 days preceding it and is
  * only used to decide which words are new.
  */
-export function buildReport(period: ReportPeriod, events: HistoryEvent[], before: HistoryEvent[] = []): Report {
+export function buildReport(
+  period: ReportPeriod,
+  events: HistoryEvent[],
+  before: HistoryEvent[] = [],
+  opts: {repeatThreshold?: number} = {},
+): Report {
+  const repeatThreshold = opts.repeatThreshold ?? REPEAT_THRESHOLD
   const inPeriod = events.filter((e) => e.at >= period.from && e.at <= period.to)
   const glosses = inPeriod.filter((e): e is Extract<HistoryEvent, {kind: "gloss"}> => e.kind === "gloss")
   const reverses = inPeriod.filter((e): e is Extract<HistoryEvent, {kind: "reverse"}> => e.kind === "reverse")
@@ -116,7 +122,7 @@ export function buildReport(period: ReportPeriod, events: HistoryEvent[], before
     newWords: newWords.sort((a, b) => b.lastAt - a.lastAt).slice(0, NEW_WORDS),
     mistakes: {
       fallbacks: [...tally(reverses).values()].sort(byCount),
-      repeats: [...glossWords.values()].filter((w) => w.count >= REPEAT_THRESHOLD).sort(byCount),
+      repeats: [...glossWords.values()].filter((w) => w.count >= repeatThreshold).sort(byCount),
       flags: flags
         .sort((a, b) => b.at - a.at)
         .slice(0, MAX_FLAGS)

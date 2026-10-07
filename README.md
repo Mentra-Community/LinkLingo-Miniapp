@@ -277,8 +277,9 @@ pairs whose scripts differ.
 
 The WebView's Reports tab shows a day or a week: words shown, new words,
 the words you reached for in English, words glossed 3+ times, comments you
-flagged, and possible errors from a daily Opus review. It reads
-`GET /api/reports?range=day|week&tzOffsetMin=&date=`, always for the
+flagged, and possible errors from a daily Opus review. The tab is drawn from
+`GET /api/views/reports?range=day|week&tzOffsetMin=&date=` (blocks, see
+below); the raw aggregate is `GET /api/reports`. Both are scoped to the
 signed-in user only.
 
 The data is a separate word ledger in the tape bucket under `history/`,
@@ -289,6 +290,37 @@ The daily review (`backend/src/services/daily-review.ts`) runs before that:
 once per user per ~20h, it reads the last 24h of input-language speech and
 keeps at most 8 findings of at most 20 characters each. The glasses cannot
 tell your voice from anyone else's, so the findings are labelled as guesses.
+
+### Changing the app from the backend
+
+Release installs are pinned to one version, so the phone takes as much as
+possible from the server at runtime. These are backend-only changes (push
+to `main`, phones pick them up on the next launch):
+
+- **A new tab, or a new section on one.** The phone draws screens from a
+  fixed block kit (`backend/src/ui-blocks.ts`: section, tiles, bars, words,
+  list, text, toggle, select, slider). Tabs after Live come from `screens` in
+  `backend/src/services/app-config.ts`; each one renders
+  `GET /api/views/<id>`, built in `backend/src/services/views.ts`. The
+  Reports tab is built in `report-view.ts`.
+- **A new setting.** Add a row to `SETTINGS` in `app-config.ts`. It can bind
+  to a built-in setting listed in `SETTABLE_KEYS`
+  (`miniapp/src/shared/serverContract.ts`), or to `prefs.<name>`, a setting
+  only the backend reads. The phone stores prefs and sends them on every
+  request in `X-LinkLingo-Prefs`; read them with
+  `currentRequestContext()?.prefs`. `prefs.repeatThreshold` is the working
+  example.
+- **Gloss loop numbers.** `TUNABLES` in `app-config.ts` (cooldown, interim
+  trigger, word hold-off and lifetime, reverse picks). The phone ignores
+  values outside the ranges in `serverContract.ts`.
+
+These still need a new install: a new block type, a new built-in setting key,
+or any change to how the HUD draws. `backend/src/services/ui-contract.test.ts`
+fails if a config uses something the phone cannot apply, and if the two
+copies of the block kit drift apart (`miniapp/src/shared/blocks.ts` must equal
+`backend/src/ui-blocks.ts`). The phone caches the last config and ships a
+bundled default (`miniapp/src/shared/defaultConfig.ts`), so a failed fetch
+never blanks the settings.
 
 ### Comment box (real-time)
 

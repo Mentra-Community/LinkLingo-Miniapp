@@ -16,32 +16,25 @@ import {glossTelemetry} from "./glossTelemetry"
 import {createLogger, diagnostics} from "./observability"
 import {hasRareToken, rareTokens} from "./prefilter"
 import {ReverseGlosser} from "./ReverseGlosser"
+import {tunable} from "./tunables"
 import {ShadowInterimDetector} from "./shadowInterim"
 import type {TranslationCache} from "./translationCache"
 import {hasSentenceEnd, stripIncompleteLastWord, type TranscriptBuffer} from "./TranscriptBuffer"
 
 const log = createLogger("engine")
 
-/**
- * Minimum spacing between glosses. The 2s floor predates any measurement of
- * what it cost: normal speech produces finals faster than that, so the second
- * utterance of a pair was routinely dropped rather than delayed. 600ms still
- * prevents the empty-gloss storms the cooldown was added for.
+/*
+ * Spacing, interim and hold-off numbers come from the server
+ * (`tunable(...)`, see backend/src/services/app-config.ts) so they can be
+ * retuned without a reinstall. Built-in defaults live in shared/serverContract.ts:
+ * - glossCooldownMs 600: the old 2s floor dropped the second utterance of a pair.
+ * - cooldownBypassChars 8: enough new speech makes the cooldown counterproductive.
+ * - interimStableMs 300 / interimGrowthChars 6: when an interim is settled enough to gloss.
+ * - wordDedupMs 20s and wordTtlMs 25s: how long a word is held off, and stays on the HUD.
  */
-const GLOSS_COOLDOWN_MS = 600
 /** The pre-1.0.17 floor, kept so the change can be A/B'd against the baseline. */
 const LEGACY_GLOSS_COOLDOWN_MS = 2000
-/**
- * Enough genuinely new speech makes the cooldown counterproductive: the words
- * worth glossing are in the part the model has not seen.
- */
-const COOLDOWN_BYPASS_NEW_CHARS = 8
-/** An interim this quiet has stopped being revised and is worth glossing early. */
-const INTERIM_STABLE_MS = 300
-/** Or it has already grown this much past the last thing the backend saw. */
-const INTERIM_GROWTH_CHARS = 6
 const UPGRADE_COOLDOWN_MS = 8000
-const WORD_DEDUP_MS = 20_000
 const UPGRADE_DRAIN_MS = 5000
 /**
  * A single ASR final is often a 2–6 character Chinese chunk ("我们去吃饭",
@@ -52,12 +45,6 @@ const UPGRADE_DRAIN_MS = 5000
 const MIN_UTTERANCE_CHARS = 4
 /** If this chunk is a filler, still gloss once the last 30s of speech is a phrase. */
 const MIN_CONTEXT_CHARS = 8
-/**
- * How long a glossed word stays on the HUD. Rows used to live until 40 s of
- * total silence, and every caption reset that clock, so during continuous
- * speech a gloss from minutes ago sat there looking stuck.
- */
-export const WORD_TTL_MS = 25_000
 
 export interface GlossEngineCallbacks {
   onWords(words: GlossedWord[]): void
@@ -189,7 +176,7 @@ export class GlossEngine {
     this.interimText = trimmed
 
     const grown = trimmed.length - this.lastGlossContext.trim().length
-    if (grown >= INTERIM_GROWTH_CHARS) {
+    if (grown >= tunable("interimGrowthChars")) {
       this.clearInterimTimer()
       this.triggerInterimGloss(settings, utteranceId, now)
       return
@@ -201,7 +188,7 @@ export class GlossEngine {
     this.interimTimer = setTimeout(() => {
       this.interimTimer = null
       this.triggerInterimGloss(settings, utteranceId, Date.now())
-    }, INTERIM_STABLE_MS)
+    }, tunable("interimStableMs"))
   }
 
   private triggerInterimGloss(
@@ -239,7 +226,7 @@ export class GlossEngine {
     for (const token of rare) {
       if (out.length >= budget) break
       const last = this.recent.get(bare(token))
-      if (last && now - last < WORD_DEDUP_MS) continue
+      if (last && now - last < tunable("wordDedupMs")) continue
       const hit = this.cache.get(token, input, output)
       if (hit) out.push(hit)
     }
@@ -263,9 +250,9 @@ export class GlossEngine {
 
   currentWords(glossed: GlossedWord[], settings: LinkLingoSettings, now = Date.now()): GlossedWord[] {
     const maxGloss = wordRowsFor(settings.mode)
-    const live = glossed.filter((w) => now - w.at <= WORD_TTL_MS)
+    const live = glossed.filter((w) => now - w.at <= tunable("wordTtlMs"))
     const glossRows = live.slice(-maxGloss)
-    const upgrade = this.shownUpgrade && now - this.shownUpgrade.at <= WORD_TTL_MS ? this.shownUpgrade : null
+    const upgrade = this.shownUpgrade && now - this.shownUpgrade.at <= tunable("wordTtlMs") ? this.shownUpgrade : null
     if (!settings.wordUpgrades || !upgrade) return glossRows
     const room = Math.max(0, maxGloss - 1)
     return [...glossRows.slice(-room), upgrade]
@@ -275,7 +262,7 @@ export class GlossEngine {
   nextExpiry(glossed: GlossedWord[], settings: LinkLingoSettings, now = Date.now()): number | null {
     const shown = this.currentWords(glossed, settings, now)
     if (shown.length === 0) return null
-    return Math.min(...shown.map((w) => w.at)) + WORD_TTL_MS
+    return Math.min(...shown.map((w) => w.at)) + tunable("wordTtlMs")
   }
 
   reset(): void {
@@ -346,10 +333,10 @@ export class GlossEngine {
       this.pending = {context, eligibleAt, utteranceId, trigger}
       return "queued_gloss"
     }
-    const cooldownMs = settings.fastCooldown ? GLOSS_COOLDOWN_MS : LEGACY_GLOSS_COOLDOWN_MS
+    const cooldownMs = settings.fastCooldown ? tunable("glossCooldownMs") : LEGACY_GLOSS_COOLDOWN_MS
     const sinceLast = eligibleAt - this.lastGlossAt
     const newChars = context.length - this.lastGlossContext.length
-    if (sinceLast < cooldownMs && newChars < COOLDOWN_BYPASS_NEW_CHARS) {
+    if (sinceLast < cooldownMs && newChars < tunable("cooldownBypassChars")) {
       // Dropped outright, not deferred, so the cost shows up as a missing
       // gloss in the transcript tape rather than as latency on a request.
       diagnostics.increment("engine.gloss_skipped.cooldown")
@@ -411,7 +398,7 @@ export class GlossEngine {
     for (const word of result.data.words) {
       const key = bare(word.word)
       const last = this.recent.get(key)
-      if (last && now - last < WORD_DEDUP_MS) {
+      if (last && now - last < tunable("wordDedupMs")) {
         deduped += 1
         continue
       }
@@ -454,7 +441,7 @@ export class GlossEngine {
       diagnostics.increment("engine.gloss_skipped.duplicate")
       return
     }
-    const cooldownMs = settings.fastCooldown ? GLOSS_COOLDOWN_MS : LEGACY_GLOSS_COOLDOWN_MS
+    const cooldownMs = settings.fastCooldown ? tunable("glossCooldownMs") : LEGACY_GLOSS_COOLDOWN_MS
     const wait = Math.max(0, cooldownMs - (Date.now() - this.lastGlossAt))
     // Distinguishes "waited on the clock" from "waited on the previous call",
     // so a long queueWaitMs names the mechanism that caused it.
@@ -525,7 +512,7 @@ export class GlossEngine {
 
   private pruneRecent(now: number): void {
     for (const [word, at] of this.recent) {
-      if (now - at > WORD_DEDUP_MS) this.recent.delete(word)
+      if (now - at > tunable("wordDedupMs")) this.recent.delete(word)
     }
   }
 }

@@ -9,10 +9,12 @@ import {tapeEnabled} from "../services/tape-store"
 import {apiKeyFingerprint, resolveAnalystModel, resolveApiKeySource} from "../services/gemini"
 import {glossService} from "../services/gloss.service"
 import {bundleApi, hostedBundleStatus} from "./bundle.api"
+import {configApi} from "./config.api"
 import {feedbackApi} from "./feedback.api"
 import {glossApi} from "./gloss.api"
 import {requestObservability} from "./observability"
 import {reportsApi} from "./reports.api"
+import {viewsApi} from "./views.api"
 import {reviewApi} from "./review.api"
 import {transcriptApi} from "./transcript.api"
 import {upgradeApi} from "./upgrade.api"
@@ -29,7 +31,7 @@ export function createApp(): Hono {
     cors({
       origin: "*",
       allowMethods: ["GET", "POST", "OPTIONS"],
-      allowHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
+      allowHeaders: ["Content-Type", "Authorization", "X-Request-Id", "X-LinkLingo-Prefs"],
     }),
   )
 
@@ -100,6 +102,10 @@ export function createApp(): Hono {
   app.route("/api/feedback", feedbackApi)
   // The learner's own day/week dashboard, from the 90-day word ledger.
   app.route("/api/reports", reportsApi)
+  // Server-driven settings rows, tabs and tunables; changes reach phones without a new install.
+  app.route("/api/config", configApi)
+  // Each server-driven tab, as blocks.
+  app.route("/api/views", viewsApi)
   // Last ~24h of model input/output for prompt tuning. Only mounted in effect
   // when LINKLINGO_REVIEW_TOKEN is set; see `bun run review`.
   app.route("/api/review", reviewApi)

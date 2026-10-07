@@ -1,11 +1,10 @@
 import type {MiniappSession} from "@mentra/miniapp/background"
 
+import type {AppConfig, SettingValue, View} from "../shared/blocks"
 import type {
   FeedbackAnalysis,
   GlossedWord,
   LinkLingoProfiling,
-  Report,
-  ReportRange,
   ShadowInterimObservation,
   TranscriptDisposition,
 } from "../shared/types"
@@ -52,6 +51,19 @@ export function preconnect(force = false): void {
 
 function url(path: string): string {
   return `${BACKEND_URL.replace(/\/$/, "")}${path}`
+}
+
+let prefsHeader = ""
+
+/** Backend-only settings ride on every request, so a server feature can read one this build never heard of. */
+export function setPrefs(prefs: Record<string, SettingValue>): void {
+  prefsHeader = Object.keys(prefs).length > 0 ? encodeURIComponent(JSON.stringify(prefs)) : ""
+}
+
+function authed(session: MiniappSession, path: string, init: RequestInit): Promise<Response> {
+  const headers = new Headers(init.headers)
+  if (prefsHeader && prefsHeader.length <= 2048) headers.set("X-LinkLingo-Prefs", prefsHeader)
+  return session.auth.fetch(url(path), {...init, headers})
 }
 
 /**
@@ -118,7 +130,7 @@ export async function requestGloss(
     queueWaitMs: client.current.queueWaitMs,
   })
   try {
-    const res = await session.auth.fetch(url("/api/gloss"), {
+    const res = await authed(session, "/api/gloss", {
       method: "POST",
       headers: {"Content-Type": "application/json", "X-Request-Id": requestId},
       body: JSON.stringify({...body, client}),
@@ -184,12 +196,11 @@ export function reportTranscript(
   // Counts toward networkIdleMs: this POST warms the same TLS connection the
   // next gloss will use, so ignoring it would overstate how cold that gloss is.
   glossTelemetry.noteBackendRequest(started)
-  void session.auth
-    .fetch(url("/api/transcript"), {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(payload),
-    })
+  void authed(session, "/api/transcript", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload),
+  })
     .then((res) => {
       diagnostics.observe("transcript.roundTrip", Date.now() - started)
       if (!res.ok) {
@@ -224,7 +235,7 @@ export async function requestFeedback(
   const started = Date.now()
   diagnostics.increment("feedback.requests")
   try {
-    const res = await session.auth.fetch(url("/api/feedback"), {
+    const res = await authed(session, "/api/feedback", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify(body),
@@ -246,27 +257,36 @@ export async function requestFeedback(
   }
 }
 
-/** One day or week of the learner's ledger, grouped by the phone's own calendar day. */
-export async function requestReport(
-  session: MiniappSession,
-  query: {range: ReportRange; date?: string; tzOffsetMin: number},
-): Promise<BackendResult<Report>> {
+async function getJson<T>(session: MiniappSession, label: string, path: string): Promise<BackendResult<T>> {
   const started = Date.now()
-  diagnostics.increment("reports.requests")
-  const params = new URLSearchParams({range: query.range, tzOffsetMin: String(query.tzOffsetMin)})
-  if (query.date) params.set("date", query.date)
+  diagnostics.increment(`${label}.requests`)
   try {
-    const res = await session.auth.fetch(url(`/api/reports?${params}`), {method: "GET"})
+    const res = await authed(session, path, {method: "GET"})
     const durationMs = Date.now() - started
-    diagnostics.observe("reports.roundTrip", durationMs)
-    if (!res.ok) return {ok: false, message: await describeFailure("reports", res, durationMs)}
-    diagnostics.increment("reports.ok")
-    return {ok: true, data: (await res.json()) as Report}
+    diagnostics.observe(`${label}.roundTrip`, durationMs)
+    if (!res.ok) return {ok: false, message: await describeFailure(label, res, durationMs)}
+    diagnostics.increment(`${label}.ok`)
+    return {ok: true, data: (await res.json()) as T}
   } catch (err) {
-    diagnostics.increment("reports.transport_error")
-    log.error("reports transport failure", {url: BACKEND_URL, error: err as Error})
+    diagnostics.increment(`${label}.transport_error`)
+    log.error(`${label} transport failure`, {url: BACKEND_URL, error: err as Error})
     return {ok: false, message: "Cannot reach LinkLingo backend"}
   }
+}
+
+/** Settings rows, tabs and tunables the server wants this session to run on. */
+export function requestConfig(session: MiniappSession): Promise<BackendResult<AppConfig>> {
+  return getJson(session, "config", "/api/config")
+}
+
+/** A server-driven tab, as blocks. `screen` comes from the config, never from the WebView directly. */
+export function requestView(
+  session: MiniappSession,
+  screen: string,
+  query: Record<string, string>,
+): Promise<BackendResult<View>> {
+  const params = new URLSearchParams(query)
+  return getJson(session, "views", `/api/views/${encodeURIComponent(screen)}?${params}`)
 }
 
 export async function requestUpgrade(
@@ -283,7 +303,7 @@ export async function requestUpgrade(
   diagnostics.increment("upgrade.requests")
   glossTelemetry.noteBackendRequest(started)
   try {
-    const res = await session.auth.fetch(url("/api/upgrade"), {
+    const res = await authed(session, "/api/upgrade", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify(body),

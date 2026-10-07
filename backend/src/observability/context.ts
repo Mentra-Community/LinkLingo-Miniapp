@@ -14,6 +14,12 @@ export interface RequestContext {
   userId?: string
   /** Token verification cost, recorded by the auth middleware for the review tape. */
   authMs?: number
+  /**
+   * The learner's backend-only settings (`prefs.*` in a server-driven
+   * settings block), sent by the phone on every request so a handler can
+   * read a setting the installed app has never heard of.
+   */
+  prefs?: Record<string, string | number | boolean>
 }
 
 const storage = new AsyncLocalStorage<RequestContext>()

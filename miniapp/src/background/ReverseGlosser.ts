@@ -6,13 +6,13 @@ import {inputLanguage, outputLanguage} from "../shared/types"
 import {requestGloss} from "./backend"
 import {createLogger, diagnostics} from "./observability"
 import {rareTokens} from "./prefilter"
+import {tunable} from "./tunables"
 
 const log = createLogger("reverse")
 
-/** Same hold-off the forward path uses, so a repeated fallback word does not refill the HUD. */
-const WORD_DEDUP_MS = 20_000
-/** Reverse rows share the 3 HUD slots with the language being learned; two leaves it room. */
-const REVERSE_MAX_WORDS = 2
+// `wordDedupMs` is the forward path's hold-off too, so a repeated fallback
+// word does not refill the HUD. `reverseMaxWords` defaults to 2 of the 3 HUD
+// slots so the language being learned keeps room.
 const LATIN_WORD = /[A-Za-z\u00c0-\u024f][A-Za-z\u00c0-\u024f'’-]*/g
 const HAN = /[\u4e00-\u9fff]/
 
@@ -68,7 +68,7 @@ export class ReverseGlosser {
         recentWords: this.recentKeys(eligibleAt),
         purpose: "reverse",
         knownRank: settings.reverseKnownRank,
-        maxWords: REVERSE_MAX_WORDS,
+        maxWords: tunable("reverseMaxWords"),
       },
       {eligibleAt, queueReason: "none", trigger: "final", utteranceId},
     )
@@ -80,7 +80,7 @@ export class ReverseGlosser {
       for (const word of result.data.words) {
         const key = bare(word.word)
         const last = this.recent.get(key)
-        if (last && now - last < WORD_DEDUP_MS) continue
+        if (last && now - last < tunable("wordDedupMs")) continue
         this.recent.set(key, now)
         shown.push({...word, at: now, direction: "reverse"})
       }
@@ -99,7 +99,7 @@ export class ReverseGlosser {
 
   private recentKeys(now: number): string[] {
     for (const [word, at] of this.recent) {
-      if (now - at > WORD_DEDUP_MS) this.recent.delete(word)
+      if (now - at > tunable("wordDedupMs")) this.recent.delete(word)
     }
     return [...this.recent.keys()]
   }

@@ -10,12 +10,16 @@ import type {
   TranscriptDisposition,
 } from "../shared/types"
 import {inputLanguage, outputLanguage} from "../shared/types"
-import {preconnect, reportTranscript, requestFeedback, requestReport} from "./backend"
+import {DEFAULT_CONFIG} from "../shared/defaultConfig"
+import type {AppConfig} from "../shared/blocks"
+import {preconnect, reportTranscript, requestConfig, requestFeedback, requestView, setPrefs} from "./backend"
+import {CONFIG_STALE_MS, loadCachedConfig, saveConfig, validConfig} from "./remoteConfig"
+import {applyTunables} from "./tunables"
 import {DisplayRenderer} from "./DisplayRenderer"
 import {GlossEngine} from "./GlossEngine"
 import {toLocale} from "./locales"
 import {createLogger, diagnostics, logLevel} from "./observability"
-import {loadSettings, saveSettings} from "./settings"
+import {cleanPrefs, loadSettings, normalizeSettings, saveSettings, settingPatch} from "./settings"
 import {TranscriptBuffer} from "./TranscriptBuffer"
 import {TranslationCache} from "./translationCache"
 
@@ -34,6 +38,8 @@ type Send = <C extends keyof Channels & string>(channel: C, payload: Channels[C]
 
 export class LinkLingoController {
   private settings!: LinkLingoSettings
+  private config: AppConfig = DEFAULT_CONFIG
+  private configFetchedAt = 0
   private words: GlossedWord[] = []
   private caption = ""
   private translation = ""
@@ -91,6 +97,10 @@ export class LinkLingoController {
     const started = Date.now()
     log.info("session starting", {logLevel})
     this.settings = await loadSettings(this.session)
+    // The last config the server sent, or the bundled one. Applied before the
+    // first utterance; the fresh copy arrives in the background.
+    this.applyConfig(await loadCachedConfig(this.session))
+    void this.refreshConfig()
     // Read before the first utterance so an early repeat is already a hit.
     await this.cache.load()
     log.info("settings loaded", {
@@ -185,6 +195,28 @@ export class LinkLingoController {
       this.uiOpen = true
       this.ui.send("link:snapshot", this.snapshot())
       this.pushDiagnostics()
+      if (Date.now() - this.configFetchedAt > CONFIG_STALE_MS) void this.refreshConfig()
+    })
+    on("link:set-setting", ({key, value}) => {
+      const partial = settingPatch(this.settings, key, value)
+      if (!partial) {
+        diagnostics.increment("settings.rejected_remote_key")
+        log.warn("ignored a setting this build cannot change", {key})
+        return
+      }
+      void this.patch(partial)
+    })
+    on("link:view-request", ({requestId, screen, query}) => {
+      if (!this.config.screens.some((s) => s.id === screen)) {
+        this.ui.send("link:view-result", {requestId, ok: false, error: "Unknown screen"})
+        return
+      }
+      void requestView(this.session, screen, query).then((result) =>
+        this.ui.send(
+          "link:view-result",
+          result.ok ? {requestId, ok: true, view: result.data} : {requestId, ok: false, error: result.message},
+        ),
+      )
     })
     on("link:set-source-language", ({language}) => void this.patch({sourceLanguage: language}))
     on("link:set-target-language", ({language}) => void this.patch({targetLanguage: language}))
@@ -198,18 +230,7 @@ export class LinkLingoController {
     on("link:set-pinyin-display", ({pinyinDisplay}) => void this.patch({pinyinDisplay}))
     on("link:set-interim-trigger", ({interimTrigger}) => void this.patch({interimTrigger}))
     on("link:set-fast-cooldown", ({fastCooldown}) => void this.patch({fastCooldown}))
-    on("link:set-reverse-gloss", ({reverseGloss}) => void this.patch({reverseGloss}))
-    on("link:set-reverse-known-rank", ({reverseKnownRank}) => void this.patch({reverseKnownRank}))
     on("link:feedback", ({requestId, note}) => void this.askAnalyst(requestId, note))
-    on("link:reports-request", ({requestId, range, date, tzOffsetMin}) => {
-      diagnostics.increment("ui.reports")
-      void requestReport(this.session, {range, date, tzOffsetMin}).then((result) =>
-        this.ui.send(
-          "link:reports-result",
-          result.ok ? {requestId, ok: true, report: result.data} : {requestId, ok: false, error: result.message},
-        ),
-      )
-    })
     on("link:clear", () => {
       log.info("hud cleared by user")
       diagnostics.increment("ui.clears")
@@ -228,9 +249,41 @@ export class LinkLingoController {
     })
   }
 
+  /** Tunables and pref defaults from the server; prefs the learner already set win over defaults. */
+  private applyConfig(config: AppConfig): void {
+    this.config = config
+    const applied = applyTunables(config.tunables)
+    const prefs = cleanPrefs({...config.prefDefaults, ...this.settings.prefs})
+    this.settings = {...this.settings, prefs}
+    setPrefs(prefs)
+    log.info("config applied", {revision: config.revision, tunables: applied.length, screens: config.screens.length})
+  }
+
+  private async refreshConfig(): Promise<void> {
+    this.configFetchedAt = Date.now()
+    const result = await requestConfig(this.session)
+    if (!result.ok) {
+      log.warn("config fetch failed; keeping the last good copy", {message: result.message})
+      return
+    }
+    const fresh = validConfig(result.data)
+    if (!fresh) {
+      diagnostics.increment("config.rejected")
+      log.warn("server config was malformed; keeping the last good copy")
+      return
+    }
+    if (fresh.revision === this.config.revision) return
+    this.applyConfig(fresh)
+    await saveConfig(this.session, fresh)
+    diagnostics.increment("config.updates")
+    if (this.uiOpen) this.ui.send("link:snapshot", this.snapshot())
+  }
+
   private async patch(partial: Partial<LinkLingoSettings>): Promise<void> {
     const prev = this.settings
-    this.settings = {...this.settings, ...partial}
+    // Normalized because server-driven rows can now set values this build never offered.
+    this.settings = normalizeSettings({...this.settings, ...partial})
+    if (partial.prefs) setPrefs(this.settings.prefs)
     const saveStarted = Date.now()
     try {
       await saveSettings(this.session, this.settings)
@@ -440,6 +493,7 @@ export class LinkLingoController {
       processing: this.processing,
       backend: this.backend,
       profiling: this.profiling,
+      config: this.config,
     }
   }
 }

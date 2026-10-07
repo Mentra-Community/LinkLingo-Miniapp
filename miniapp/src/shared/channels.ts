@@ -7,9 +7,8 @@ import type {
   LinkLingoProfiling,
   LinkLingoSettings,
   LinkLingoSnapshot,
-  Report,
-  ReportRange,
 } from "./types"
+import type {SettingValue, View} from "./blocks"
 
 export interface Channels {
   "link:snapshot": LinkLingoSnapshot
@@ -34,15 +33,15 @@ export interface Channels {
   "link:set-pinyin-display": {pinyinDisplay: boolean}
   "link:set-interim-trigger": {interimTrigger: boolean}
   "link:set-fast-cooldown": {fastCooldown: boolean}
-  "link:set-reverse-gloss": {reverseGloss: boolean}
-  "link:set-reverse-known-rank": {reverseKnownRank: number}
+  /** A server-driven settings row changed; the background checks the key is one it may change. */
+  "link:set-setting": {key: string; value: SettingValue}
   "link:clear": {}
   /** User flags a problem they just saw; background gathers context and asks the analyst. */
   "link:feedback": {requestId: string; note: string}
   "link:feedback-result": {requestId: string; ok: boolean; analysis?: FeedbackAnalysis; error?: string}
-  /** The Reports tab asks the background for one day or week of the ledger. */
-  "link:reports-request": {requestId: string; range: ReportRange; date?: string; tzOffsetMin: number}
-  "link:reports-result": {requestId: string; ok: boolean; report?: Report; error?: string}
+  /** A server-driven tab asks for its blocks; `screen` must be one the config lists. */
+  "link:view-request": {requestId: string; screen: string; query: Record<string, string>}
+  "link:view-result": {requestId: string; ok: boolean; view?: View; error?: string}
 }
 
 declare global {

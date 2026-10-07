@@ -696,8 +696,7 @@ textarea {
   margin-bottom: 14px;
 }
 
-.stack .card > .seg:only-child,
-.stack .card > .seg:first-child {
+.seg.two {
   grid-template-columns: repeat(2, 1fr);
 }
 
@@ -720,8 +719,13 @@ textarea {
   opacity: 0.35;
 }
 
-.card.stale {
+.stack.stale > .card:not(:first-child) {
   opacity: 0.6;
+}
+
+.body-text {
+  margin: 10px 0 0;
+  font-size: 14px;
 }
 
 .tiles {
@@ -781,8 +785,20 @@ textarea {
   background: var(--accent);
 }
 
-.bar.fallback {
+.bar.tone-info {
   background: var(--busy);
+}
+
+.bar.tone-good {
+  background: var(--good);
+}
+
+.bar.tone-bad {
+  background: var(--bad);
+}
+
+.bar.tone-muted {
+  background: var(--faint);
 }
 
 .report-group {
@@ -839,6 +855,11 @@ textarea {
   color: var(--bad);
 }
 
-.report-list .confidence-low {
+.report-list .tone-muted {
   opacity: 0.7;
+}
+
+.report-list .tone-bad s,
+.report-list .tone-bad {
+  border-color: color-mix(in srgb, var(--bad) 40%, var(--line));
 }

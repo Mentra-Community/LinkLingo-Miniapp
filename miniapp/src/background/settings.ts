@@ -1,9 +1,11 @@
 import type {MiniappSession} from "@mentra/miniapp/background"
 
+import type {SettingValue} from "../shared/blocks"
+import {SETTABLE_KEYS, type SettableKey} from "../shared/serverContract"
 import {
   DEFAULT_SETTINGS,
   HUD_CAPTION_LINES,
-  REVERSE_KNOWN_RANKS,
+  REVERSE_KNOWN_RANK_LIMITS,
   SETTINGS_SCHEMA_VERSION,
   type LinkLingoMode,
   type LinkLingoSettings,
@@ -63,10 +65,45 @@ export function normalizeSettings(settings: LinkLingoSettings): LinkLingoSetting
     displayLines: clamp(settings.displayLines, 1, HUD_CAPTION_LINES),
     displayWidth: settings.displayWidth === 0 || settings.displayWidth === 2 ? settings.displayWidth : 1,
     reverseGloss: settings.reverseGloss !== false,
-    reverseKnownRank: (REVERSE_KNOWN_RANKS as readonly number[]).includes(settings.reverseKnownRank)
-      ? settings.reverseKnownRank
+    reverseKnownRank: Number.isFinite(settings.reverseKnownRank)
+      ? clamp(Math.round(settings.reverseKnownRank), REVERSE_KNOWN_RANK_LIMITS[0], REVERSE_KNOWN_RANK_LIMITS[1])
       : DEFAULT_SETTINGS.reverseKnownRank,
+    prefs: cleanPrefs(settings.prefs),
   }
+}
+
+/** Flat primitives only, the same shape the backend accepts in the prefs header. */
+export function cleanPrefs(prefs: unknown): Record<string, SettingValue> {
+  if (!prefs || typeof prefs !== "object" || Array.isArray(prefs)) return {}
+  const out: Record<string, SettingValue> = {}
+  for (const [key, value] of Object.entries(prefs)) {
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,40}$/.test(key)) continue
+    if (typeof value === "boolean" || typeof value === "string" || (typeof value === "number" && Number.isFinite(value))) {
+      out[key] = value
+    }
+  }
+  return out
+}
+
+/**
+ * Applies a value from a server-driven settings row. Returns the patch to
+ * save, or null when the key is not one the server may change or the value
+ * is the wrong type — the server can only reach settings this build exposes.
+ */
+export function settingPatch(
+  settings: LinkLingoSettings,
+  key: string,
+  value: unknown,
+): Partial<LinkLingoSettings> | null {
+  if (key.startsWith("prefs.")) {
+    const name = key.slice("prefs.".length)
+    const next = cleanPrefs({...settings.prefs, [name]: value})
+    return name in next ? {prefs: next} : null
+  }
+  if (!(SETTABLE_KEYS as readonly string[]).includes(key)) return null
+  const current = DEFAULT_SETTINGS[key as SettableKey]
+  if (typeof value !== typeof current) return null
+  return {[key]: value} as Partial<LinkLingoSettings>
 }
 
 export function migrateSettings(parsed: Partial<LinkLingoSettings>): LinkLingoSettings {

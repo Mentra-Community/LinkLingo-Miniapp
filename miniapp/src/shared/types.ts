@@ -1,3 +1,5 @@
+import type {AppConfig, SettingValue} from "./blocks"
+
 export type LinkLingoMode = "gloss" | "gloss-captions" | "translation"
 
 export interface LinkLingoSettings {
@@ -27,10 +29,15 @@ export interface LinkLingoSettings {
   reverseGloss: boolean
   /** Fallback words this common are skipped; the learner has these in any language. */
   reverseKnownRank: number
+  /**
+   * Settings only the backend reads, created by server-driven settings rows
+   * (`prefs.<name>`). Stored here and sent with every backend request.
+   */
+  prefs: Record<string, SettingValue>
 }
 
-/** Choices for "skip the most common English"; the first match wins when a stored value is off-list. */
-export const REVERSE_KNOWN_RANKS = [300, 500, 1000, 2000] as const
+/** Range a server-offered reverse cut must fall in; the backend clamps the same way. */
+export const REVERSE_KNOWN_RANK_LIMITS = [100, 20_000] as const
 
 export const SETTINGS_SCHEMA_VERSION = 3
 
@@ -55,6 +62,7 @@ export const DEFAULT_SETTINGS: LinkLingoSettings = {
   fastCooldown: true,
   reverseGloss: true,
   reverseKnownRank: 500,
+  prefs: {},
 }
 
 export interface GlossedWord {
@@ -192,6 +200,8 @@ export interface LinkLingoSnapshot {
   processing: boolean
   backend: BackendStatus
   profiling: LinkLingoProfiling | null
+  /** Server-driven settings rows and tabs; the bundled default until the first fetch. */
+  config: AppConfig
 }
 
 export function inputLanguage(settings: LinkLingoSettings): string {
