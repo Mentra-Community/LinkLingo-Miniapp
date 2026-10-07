@@ -108,8 +108,29 @@ function annotatePair(word: string, translation: string, inputLang: string, outp
   return {word: processedWord, translation: processedTranslation}
 }
 
+/** The model calls a gloss needs. Injected so tests replace them without mocking the module for every other test file. */
+export interface GlossDeps {
+  generate: typeof generateJson
+  apiKey: () => string | undefined
+  allowMock: () => boolean
+  provider: () => string | undefined
+  model: () => string
+}
+
+const DEFAULT_DEPS: GlossDeps = {
+  generate: generateJson,
+  apiKey: resolveApiKey,
+  allowMock: allowMockLlm,
+  provider: resolveProvider,
+  model: resolveModel,
+}
+
 export class GlossService {
-  readonly model = resolveModel()
+  readonly model: string
+
+  constructor(private readonly deps: GlossDeps = DEFAULT_DEPS) {
+    this.model = deps.model()
+  }
 
   async gloss(body: GlossRequest): Promise<GlossResponse> {
     const started = Date.now()
@@ -218,7 +239,7 @@ export class GlossService {
       }
     }
 
-    if (!resolveApiKey() && allowMockLlm()) {
+    if (!this.deps.apiKey() && this.deps.allowMock()) {
       const first = candidates[0]
       metrics.increment("gloss_outcomes_total", {outcome: "mock"})
       call.warn("serving mock gloss: no API key and mock mode enabled")
@@ -248,7 +269,7 @@ export class GlossService {
 
     let result
     try {
-      result = await generateJson({
+      result = await this.deps.generate({
         system: GLOSS_SYSTEM,
         user,
         // The answer is ~40 tokens, but reasoning models bill thinking against
@@ -257,7 +278,7 @@ export class GlossService {
         maxOutputTokens: 512,
         responseSchema: GLOSS_SCHEMA,
         operation: "gloss",
-        provider: resolveProvider(),
+        provider: this.deps.provider(),
       })
     } catch (error) {
       review({

@@ -1,33 +1,27 @@
-import {beforeEach, describe, expect, mock, test} from "bun:test"
+import {beforeEach, describe, expect, test} from "bun:test"
 
-import type {GeminiCallOptions, GeminiCallResult} from "./gemini"
 import {knownRankFor} from "./frequency"
+import type {GeminiCallOptions, GeminiCallResult} from "./gemini"
+import {GLOSS_PROMPT_VERSION, GlossService, REVERSE_HINT, resolveGlossLimits} from "./gloss.service"
+import {reviewLog} from "./review-log"
 
 /** Every prompt the service built, so tests can assert on the contract. */
 let calls: GeminiCallOptions[] = []
 let reply = '{"words":[]}'
 
-mock.module("./gemini", () => ({
-  resolveModel: () => "test-model",
-  resolveApiKey: () => "test-key",
-  resolveProvider: () => undefined,
-  allowMockLlm: () => false,
-  LlmServiceError: class extends Error {},
-  generateJson: async (opts: GeminiCallOptions): Promise<GeminiCallResult> => {
+// Injected rather than mock.module("./gemini"): a module mock is process-wide
+// in bun and replaced the real client in openrouter.test.ts whenever this file
+// happened to run first.
+const glossService = new GlossService({
+  model: () => "test-model",
+  apiKey: () => "test-key",
+  provider: () => undefined,
+  allowMock: () => false,
+  generate: async (opts: GeminiCallOptions): Promise<GeminiCallResult> => {
     calls.push(opts)
-    return {
-      text: reply,
-      llmMs: 1,
-      parseMs: 0,
-      model: "test-model",
-      truncated: false,
-      usage: {totalTokens: 10},
-    }
+    return {text: reply, llmMs: 1, parseMs: 0, model: "test-model", truncated: false, usage: {totalTokens: 10}}
   },
-}))
-
-const {glossService, GLOSS_PROMPT_VERSION, REVERSE_HINT, resolveGlossLimits} = await import("./gloss.service")
-const {reviewLog} = await import("./review-log")
+})
 
 const ZH = "我们今天下午要去参观博物馆，然后在附近的餐厅吃晚饭。"
 /** Carries 深远 (rank ~20675), so candidates survive even at high proficiency. */
