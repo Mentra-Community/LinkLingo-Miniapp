@@ -1,4 +1,4 @@
-# Porter v2 — DEV. Secrets from Doppler project `linklingo` / config `dev`.
+# Porter v2 — DEV. Secrets from Doppler project `linklingo` / config `dev_porter`.
 #
 #   porter apply -f ./porter.dev.yaml
 
