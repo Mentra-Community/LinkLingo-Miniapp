@@ -19,6 +19,7 @@
     "miniapp:pack": "cd miniapp && VERSION=$(node -p \"require('./miniapp.json').version\") && rm -f build/com.mentra.link-$VERSION.zip && mkdir -p build && cd dist && zip -qr ../build/com.mentra.link-$VERSION.zip .",
     "build": "bun run miniapp:build",
     "pack": "MENTRA_PUBLIC_LINKLINGO_BACKEND_URL=https://linklingo-miniapp-dev.mentraglass.com bun run miniapp:build && bun run miniapp:pack",
+    "pack:prod": "NODE_ENV=production MENTRA_PUBLIC_LINKLINGO_BACKEND_URL=https://linklingo-miniapp-prod.mentraglass.com bun run miniapp:build && bun run miniapp:pack",
     "typecheck": "bun run typecheck:backend && bun run typecheck:miniapp",
     "typecheck:backend": "cd backend && tsc -p tsconfig.json --noEmit",
     "typecheck:miniapp": "cd miniapp && tsc -p tsconfig.json --noEmit",
