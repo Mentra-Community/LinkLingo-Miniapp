@@ -9,13 +9,7 @@ import type {
   LinkLingoSettings,
   LinkLingoSnapshot,
 } from "../shared/types"
-import {
-  DEFAULT_SETTINGS,
-  HUD_CAPTION_LINES,
-  inputLanguage,
-  knownRankFor,
-  outputLanguage,
-} from "../shared/types"
+import {DEFAULT_SETTINGS, HUD_CAPTION_LINES, inputLanguage, knownRankFor, outputLanguage} from "../shared/types"
 import type {SettingValue} from "../shared/blocks"
 import {DEFAULT_CONFIG} from "../shared/defaultConfig"
 import {version as APP_VERSION} from "../../miniapp.json"
@@ -115,7 +109,12 @@ export function App() {
   return (
     <div
       className={`screen ${isDark ? "theme-dark" : "theme-light"}`}
-      style={{paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right}}>
+      style={{
+        paddingTop: insets.top,
+        paddingBottom: insets.bottom,
+        paddingLeft: insets.left,
+        paddingRight: insets.right,
+      }}>
       <div className="wrap">
         <header className="topbar">
           <div className="brand">
@@ -151,263 +150,278 @@ export function App() {
           </div>
         ) : null}
 
-        {activeScreen ? <ServerScreen key={activeScreen.id} screen={activeScreen} ctx={blockCtx} /> : (
-        <div className="stack">
-          <section className="card live-card">
-            <div className="card-head">
-              <h2 className="card-title">Live</h2>
-              <span className="meta">
-                {snap.processing ? "Glossing…" : latency(snap)}
-              </span>
-            </div>
-            {snap.words.length > 0 ? (
-              <div className="words">
-                {snap.words.map((word) => (
-                  <div
-                    key={`${word.word}-${word.at}`}
-                    className={`word-chip${word.isUpgrade ? " upgrade" : ""}${word.direction === "reverse" ? " reverse" : ""}`}>
-                    <b>{word.word}</b>
-                    <small>{word.translation}</small>
-                  </div>
-                ))}
+        {activeScreen ? (
+          <ServerScreen key={activeScreen.id} screen={activeScreen} ctx={blockCtx} />
+        ) : (
+          <div className="stack">
+            <section className="card live-card">
+              <div className="card-head">
+                <h2 className="card-title">Live</h2>
+                <span className="meta">{snap.processing ? "Glossing…" : latency(snap)}</span>
               </div>
-            ) : (
-              <div className="empty-live">
-                <strong>{snap.caption ? `Heard ${heard}` : `Listening for ${heard}`}</strong>
-                <span>
-                  {snap.backend.lastError
-                    ? snap.backend.lastError
-                    : snap.caption
-                      ? "Nothing uncommon enough to gloss in that stretch yet."
-                      : "Rare words and upgrades will stack here as people talk around you."}
-                </span>
-              </div>
-            )}
-            {settings.mode !== "translation" && snap.caption ? <p className="caption">{snap.caption}</p> : null}
-            {settings.mode === "translation" && (snap.translation || snap.original) ? (
-              <>
-                <p className="translation">{snap.translation}</p>
-                <p className="original">{snap.original}</p>
-              </>
-            ) : null}
-            {snap.backend.lastError ? <p className="hint">{snap.backend.lastError}</p> : null}
-            <AnalystNote />
-          </section>
-
-          <section className="card">
-            <div className="card-head">
-              <h2 className="card-title">Languages</h2>
-            </div>
-            <div className="pair">
-              <div className="lang">
-                <label htmlFor="source-language">Hearing</label>
-                <select
-                  id="source-language"
-                  className="select"
-                  value={settings.sourceLanguage}
-                  onChange={(e) =>
-                    setSetting("sourceLanguage", "link:set-source-language", {language: e.target.value}, e.target.value)
-                  }>
-                  {LANGUAGES.map((language) => (
-                    <option key={language.code} value={language.code}>
-                      {languageOptionLabel(language.code)}
-                    </option>
+              {snap.words.length > 0 ? (
+                <div className="words">
+                  {snap.words.map((word) => (
+                    <div
+                      key={`${word.word}-${word.at}`}
+                      className={`word-chip${word.isUpgrade ? " upgrade" : ""}${word.direction === "reverse" ? " reverse" : ""}`}>
+                      <b>{word.word}</b>
+                      <small>{word.translation}</small>
+                    </div>
                   ))}
-                </select>
-              </div>
-              <button type="button" className="swap" aria-label="Swap languages" onClick={swapPair}>
-                ⇄
-              </button>
-              <div className="lang">
-                <label htmlFor="target-language">Show in</label>
-                <select
-                  id="target-language"
-                  className="select"
-                  value={settings.targetLanguage}
-                  onChange={(e) =>
-                    setSetting("targetLanguage", "link:set-target-language", {language: e.target.value}, e.target.value)
-                  }>
-                  {LANGUAGES.map((language) => (
-                    <option key={language.code} value={language.code}>
-                      {languageOptionLabel(language.code)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <p className="hint">
-              Gloss {heard} speech into {gloss}. Swap if you want the other way.
-            </p>
-          </section>
-
-          <section className="card">
-            <div className="card-head">
-              <h2 className="card-title">Mode</h2>
-            </div>
-            <div className="seg" role="tablist" aria-label="Learning mode">
-              {MODES.map((mode) => (
-                <button
-                  key={mode.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={settings.mode === mode.id}
-                  className={settings.mode === mode.id ? "on" : ""}
-                  onClick={() => setSetting("mode", "link:set-mode", {mode: mode.id}, mode.id)}>
-                  {mode.label}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="card">
-            <div className="card-head">
-              <h2 className="card-title">Learning</h2>
-              <span className="meta">{proficiencyLabel(settings.proficiency)}</span>
-            </div>
-            <input
-              className="slider"
-              type="range"
-              min={0}
-              max={100}
-              value={settings.proficiency}
-              aria-label="Proficiency"
-              onChange={(e) =>
-                setSetting("proficiency", "link:set-proficiency", {proficiency: Number(e.target.value)}, Number(e.target.value))
-              }
-            />
-            <div className="level">
-              <span>Beginner</span>
-              <b>{`≈${knownRankFor(settings.proficiency).toLocaleString()} words`}</b>
-              <span>Advanced</span>
-            </div>
-            <div className="rows">
-              <ToggleRow
-                title="Word upgrades"
-                detail="Also show harder synonyms you should learn"
-                checked={settings.wordUpgrades}
-                disabled={settings.mode === "translation"}
-                onChange={(wordUpgrades) =>
-                  setSetting("wordUpgrades", "link:set-word-upgrades", {wordUpgrades}, wordUpgrades)
-                }
-              />
-              <ToggleRow
-                title="Pinyin"
-                detail="Add pronunciation under Chinese"
-                checked={settings.pinyinDisplay}
-                onChange={(pinyinDisplay) =>
-                  setSetting("pinyinDisplay", "link:set-pinyin-display", {pinyinDisplay}, pinyinDisplay)
-                }
-              />
-              {/* Rows from the server config (backend/src/services/app-config.ts). */}
-              <SettingRows blocks={snap.config.settings} ctx={blockCtx} />
-            </div>
-          </section>
-
-          <section className="card">
-            <button
-              type="button"
-              className="disclosure"
-              aria-expanded={displayOpen}
-              onClick={() => setDisplayOpen((open) => !open)}>
-              <h2 className="card-title">Glasses display</h2>
-              <span className={`chevron${displayOpen ? " open" : ""}`}>›</span>
-            </button>
-            {displayOpen ? (
-              <div className="display-body">
-                <label className="row-copy">
-                  <strong>Caption lines · {settings.displayLines}</strong>
-                  <input
-                    className="slider"
-                    type="range"
-                    min={1}
-                    max={HUD_CAPTION_LINES}
-                    value={settings.displayLines}
-                    onChange={(e) =>
-                      setSetting(
-                        "displayLines",
-                        "link:set-display-lines",
-                        {displayLines: Number(e.target.value)},
-                        Number(e.target.value),
-                      )
-                    }
-                  />
-                </label>
-                <label className="row">
-                  <span className="row-copy">
-                    <strong>Width</strong>
-                    <span>How much HUD real estate to use</span>
+                </div>
+              ) : (
+                <div className="empty-live">
+                  <strong>{snap.caption ? `Heard ${heard}` : `Listening for ${heard}`}</strong>
+                  <span>
+                    {snap.backend.lastError
+                      ? snap.backend.lastError
+                      : snap.caption
+                        ? "Nothing uncommon enough to gloss in that stretch yet."
+                        : "Rare words and upgrades will stack here as people talk around you."}
                   </span>
+                </div>
+              )}
+              {settings.mode !== "translation" && snap.caption ? <p className="caption">{snap.caption}</p> : null}
+              {settings.mode === "translation" && (snap.translation || snap.original) ? (
+                <>
+                  <p className="translation">{snap.translation}</p>
+                  <p className="original">{snap.original}</p>
+                </>
+              ) : null}
+              {snap.backend.lastError ? <p className="hint">{snap.backend.lastError}</p> : null}
+              <AnalystNote />
+            </section>
+
+            <section className="card">
+              <div className="card-head">
+                <h2 className="card-title">Languages</h2>
+              </div>
+              <div className="pair">
+                <div className="lang">
+                  <label htmlFor="source-language">Hearing</label>
                   <select
+                    id="source-language"
                     className="select"
-                    style={{width: 132, minHeight: 44, fontSize: 14}}
-                    value={settings.displayWidth}
+                    value={settings.sourceLanguage}
                     onChange={(e) =>
                       setSetting(
-                        "displayWidth",
-                        "link:set-display-width",
-                        {displayWidth: Number(e.target.value) as 0 | 1 | 2},
-                        Number(e.target.value) as 0 | 1 | 2,
+                        "sourceLanguage",
+                        "link:set-source-language",
+                        {language: e.target.value},
+                        e.target.value,
                       )
                     }>
-                    <option value={0}>Narrow</option>
-                    <option value={1}>Medium</option>
-                    <option value={2}>Wide</option>
+                    {LANGUAGES.map((language) => (
+                      <option key={language.code} value={language.code}>
+                        {languageOptionLabel(language.code)}
+                      </option>
+                    ))}
                   </select>
-                </label>
+                </div>
+                <button type="button" className="swap" aria-label="Swap languages" onClick={swapPair}>
+                  ⇄
+                </button>
+                <div className="lang">
+                  <label htmlFor="target-language">Show in</label>
+                  <select
+                    id="target-language"
+                    className="select"
+                    value={settings.targetLanguage}
+                    onChange={(e) =>
+                      setSetting(
+                        "targetLanguage",
+                        "link:set-target-language",
+                        {language: e.target.value},
+                        e.target.value,
+                      )
+                    }>
+                    {LANGUAGES.map((language) => (
+                      <option key={language.code} value={language.code}>
+                        {languageOptionLabel(language.code)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="hint">
+                Gloss {heard} speech into {gloss}. Swap if you want the other way.
+              </p>
+            </section>
+
+            <section className="card">
+              <div className="card-head">
+                <h2 className="card-title">Mode</h2>
+              </div>
+              <div className="seg" role="tablist" aria-label="Learning mode">
+                {MODES.map((mode) => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={settings.mode === mode.id}
+                    className={settings.mode === mode.id ? "on" : ""}
+                    onClick={() => setSetting("mode", "link:set-mode", {mode: mode.id}, mode.id)}>
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="card">
+              <div className="card-head">
+                <h2 className="card-title">Learning</h2>
+                <span className="meta">{proficiencyLabel(settings.proficiency)}</span>
+              </div>
+              <input
+                className="slider"
+                type="range"
+                min={0}
+                max={100}
+                value={settings.proficiency}
+                aria-label="Proficiency"
+                onChange={(e) =>
+                  setSetting(
+                    "proficiency",
+                    "link:set-proficiency",
+                    {proficiency: Number(e.target.value)},
+                    Number(e.target.value),
+                  )
+                }
+              />
+              <div className="level">
+                <span>Beginner</span>
+                <b>{`≈${knownRankFor(settings.proficiency).toLocaleString()} words`}</b>
+                <span>Advanced</span>
+              </div>
+              <div className="rows">
                 <ToggleRow
-                  title="Break mid-word"
-                  detail="Wrap long HUD lines more aggressively"
-                  checked={settings.wordBreaking}
-                  onChange={(wordBreaking) =>
-                    setSetting("wordBreaking", "link:set-word-breaking", {wordBreaking}, wordBreaking)
+                  title="Word upgrades"
+                  detail="Also show harder synonyms you should learn"
+                  checked={settings.wordUpgrades}
+                  disabled={settings.mode === "translation"}
+                  onChange={(wordUpgrades) =>
+                    setSetting("wordUpgrades", "link:set-word-upgrades", {wordUpgrades}, wordUpgrades)
                   }
                 />
+                <ToggleRow
+                  title="Pinyin"
+                  detail="Add pronunciation under Chinese"
+                  checked={settings.pinyinDisplay}
+                  onChange={(pinyinDisplay) =>
+                    setSetting("pinyinDisplay", "link:set-pinyin-display", {pinyinDisplay}, pinyinDisplay)
+                  }
+                />
+                {/* Rows from the server config (backend/src/services/app-config.ts). */}
+                <SettingRows blocks={snap.config.settings} ctx={blockCtx} />
               </div>
-            ) : null}
-          </section>
+            </section>
 
-          <section className="card">
-            <button
-              type="button"
-              className="disclosure"
-              aria-expanded={diagnosticsOpen}
-              onClick={() => setDiagnosticsOpen((open) => !open)}>
-              <h2 className="card-title">Diagnostics</h2>
-              <span className={`chevron${diagnosticsOpen ? " open" : ""}`}>›</span>
-            </button>
-            {diagnosticsOpen ? (
-              <>
-                {/* Both default on. They exist so one installed build can be
-                    A/B'd against the 1.0.16 baseline without a reinstall. */}
-                <div className="rows">
+            <section className="card">
+              <button
+                type="button"
+                className="disclosure"
+                aria-expanded={displayOpen}
+                onClick={() => setDisplayOpen((open) => !open)}>
+                <h2 className="card-title">Glasses display</h2>
+                <span className={`chevron${displayOpen ? " open" : ""}`}>›</span>
+              </button>
+              {displayOpen ? (
+                <div className="display-body">
+                  <label className="row-copy">
+                    <strong>Caption lines · {settings.displayLines}</strong>
+                    <input
+                      className="slider"
+                      type="range"
+                      min={1}
+                      max={HUD_CAPTION_LINES}
+                      value={settings.displayLines}
+                      onChange={(e) =>
+                        setSetting(
+                          "displayLines",
+                          "link:set-display-lines",
+                          {displayLines: Number(e.target.value)},
+                          Number(e.target.value),
+                        )
+                      }
+                    />
+                  </label>
+                  <label className="row">
+                    <span className="row-copy">
+                      <strong>Width</strong>
+                      <span>How much HUD real estate to use</span>
+                    </span>
+                    <select
+                      className="select"
+                      style={{width: 132, minHeight: 44, fontSize: 14}}
+                      value={settings.displayWidth}
+                      onChange={(e) =>
+                        setSetting(
+                          "displayWidth",
+                          "link:set-display-width",
+                          {displayWidth: Number(e.target.value) as 0 | 1 | 2},
+                          Number(e.target.value) as 0 | 1 | 2,
+                        )
+                      }>
+                      <option value={0}>Narrow</option>
+                      <option value={1}>Medium</option>
+                      <option value={2}>Wide</option>
+                    </select>
+                  </label>
                   <ToggleRow
-                    title="Gloss early"
-                    detail="Translate a settled phrase without waiting for the sentence to end"
-                    checked={settings.interimTrigger}
-                    onChange={(interimTrigger) =>
-                      setSetting("interimTrigger", "link:set-interim-trigger", {interimTrigger}, interimTrigger)
-                    }
-                  />
-                  <ToggleRow
-                    title="Short gap between glosses"
-                    detail="0.6s instead of 2s, so fast speech is not skipped"
-                    checked={settings.fastCooldown}
-                    onChange={(fastCooldown) =>
-                      setSetting("fastCooldown", "link:set-fast-cooldown", {fastCooldown}, fastCooldown)
+                    title="Break mid-word"
+                    detail="Wrap long HUD lines more aggressively"
+                    checked={settings.wordBreaking}
+                    onChange={(wordBreaking) =>
+                      setSetting("wordBreaking", "link:set-word-breaking", {wordBreaking}, wordBreaking)
                     }
                   />
                 </div>
-                <DiagnosticsBody diagnostics={diagnostics} />
-              </>
-            ) : null}
-          </section>
+              ) : null}
+            </section>
 
-          <div className="actions">
-            <button type="button" className="danger" onClick={() => mentra.send("link:clear", {})}>
-              Clear HUD
-            </button>
+            <section className="card">
+              <button
+                type="button"
+                className="disclosure"
+                aria-expanded={diagnosticsOpen}
+                onClick={() => setDiagnosticsOpen((open) => !open)}>
+                <h2 className="card-title">Diagnostics</h2>
+                <span className={`chevron${diagnosticsOpen ? " open" : ""}`}>›</span>
+              </button>
+              {diagnosticsOpen ? (
+                <>
+                  {/* Both default on. They exist so one installed build can be
+                    A/B'd against the 1.0.16 baseline without a reinstall. */}
+                  <div className="rows">
+                    <ToggleRow
+                      title="Gloss early"
+                      detail="Translate a settled phrase without waiting for the sentence to end"
+                      checked={settings.interimTrigger}
+                      onChange={(interimTrigger) =>
+                        setSetting("interimTrigger", "link:set-interim-trigger", {interimTrigger}, interimTrigger)
+                      }
+                    />
+                    <ToggleRow
+                      title="Short gap between glosses"
+                      detail="0.6s instead of 2s, so fast speech is not skipped"
+                      checked={settings.fastCooldown}
+                      onChange={(fastCooldown) =>
+                        setSetting("fastCooldown", "link:set-fast-cooldown", {fastCooldown}, fastCooldown)
+                      }
+                    />
+                  </div>
+                  <DiagnosticsBody diagnostics={diagnostics} />
+                </>
+              ) : null}
+            </section>
+
+            <div className="actions">
+              <button type="button" className="danger" onClick={() => mentra.send("link:clear", {})}>
+                Clear HUD
+              </button>
+            </div>
           </div>
-        </div>
         )}
         <p className="app-version">LinkLingo {APP_VERSION}</p>
       </div>
@@ -464,7 +478,11 @@ function AnalystNote() {
         disabled={pending !== null}
         onChange={(e) => setNote(e.target.value)}
       />
-      <button type="button" className="primary" disabled={pending !== null || note.trim().length === 0} onClick={submit}>
+      <button
+        type="button"
+        className="primary"
+        disabled={pending !== null || note.trim().length === 0}
+        onClick={submit}>
         {pending ? `Thinking… ${elapsed}s` : "Send"}
       </button>
       {result?.error ? (

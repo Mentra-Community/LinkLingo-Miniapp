@@ -21,9 +21,7 @@ const LEVEL_WEIGHT: Record<MiniLogLevel, number> = {
 // Inlined at build time by build.ts for any MENTRA_PUBLIC_* variable.
 const CONFIGURED_LEVEL = (process.env.MENTRA_PUBLIC_LINKLINGO_LOG_LEVEL || "info").toLowerCase()
 
-const activeLevel: MiniLogLevel = (
-  CONFIGURED_LEVEL in LEVEL_WEIGHT ? CONFIGURED_LEVEL : "info"
-) as MiniLogLevel
+const activeLevel: MiniLogLevel = (CONFIGURED_LEVEL in LEVEL_WEIGHT ? CONFIGURED_LEVEL : "info") as MiniLogLevel
 
 export type LogFields = Record<string, unknown>
 

@@ -23,19 +23,19 @@ import {
   type DisplayProfile,
   type WrapOptions,
   type WrapResult,
-} from "../vendor/display-utils";
+} from "../vendor/display-utils"
 
 // Re-export profiles for convenience
-export { G1_PROFILE, G1_PROFILE_LEGACY, Z100_PROFILE, NEX_PROFILE };
-export type { DisplayProfile };
+export {G1_PROFILE, G1_PROFILE_LEGACY, Z100_PROFILE, NEX_PROFILE}
+export type {DisplayProfile}
 
 /**
  * Entry in the transcript history that preserves speaker information.
  */
 export interface TranscriptHistoryEntry {
-  text: string;
-  speakerId?: string;
-  hadSpeakerChange: boolean;
+  text: string
+  speakerId?: string
+  hadSpeakerChange: boolean
 }
 
 /**
@@ -43,7 +43,7 @@ export interface TranscriptHistoryEntry {
  */
 export interface CaptionsFormatterOptions {
   /** Maximum number of final transcripts to keep in history */
-  maxFinalTranscripts?: number;
+  maxFinalTranscripts?: number
   /**
    * Break mode for text wrapping:
    * - 'character': Break mid-word with hyphen
@@ -52,13 +52,13 @@ export interface CaptionsFormatterOptions {
    *
    * Note: 'character-no-hyphen' is not yet in SDK, so we use 'character' as fallback
    */
-  breakMode?: "character" | "word" | "strict-word";
+  breakMode?: "character" | "word" | "strict-word"
   /** Whether to use character-level breaking for 100% utilization */
-  useCharacterBreaking?: boolean;
+  useCharacterBreaking?: boolean
   /** Override display width in pixels (defaults to profile's displayWidthPx) */
-  displayWidthPx?: number;
+  displayWidthPx?: number
   /** Override max lines (defaults to profile's maxLines) */
-  maxLines?: number;
+  maxLines?: number
 }
 
 /**
@@ -66,13 +66,13 @@ export interface CaptionsFormatterOptions {
  */
 export interface FormatResult {
   /** Formatted lines for display */
-  lines: string[];
+  lines: string[]
   /** Joined display text */
-  displayText: string;
+  displayText: string
   /** Whether content was truncated */
-  truncated: boolean;
+  truncated: boolean
   /** Per-line metrics */
-  lineMetrics: WrapResult["lineMetrics"];
+  lineMetrics: WrapResult["lineMetrics"]
 }
 
 /**
@@ -97,49 +97,44 @@ export interface FormatResult {
  * ```
  */
 export class CaptionsFormatter {
-  private readonly measurer: TextMeasurer;
-  private readonly wrapper: TextWrapper;
-  private readonly helpers: DisplayHelpers;
-  private readonly profile: DisplayProfile;
+  private readonly measurer: TextMeasurer
+  private readonly wrapper: TextWrapper
+  private readonly helpers: DisplayHelpers
+  private readonly profile: DisplayProfile
 
   // History management
-  private finalTranscriptHistory: TranscriptHistoryEntry[] = [];
-  private maxFinalTranscripts: number;
+  private finalTranscriptHistory: TranscriptHistoryEntry[] = []
+  private maxFinalTranscripts: number
 
   // Partial text tracking
-  private partialSpeakerId: string | undefined = undefined;
-  private partialHadSpeakerChange: boolean = false;
+  private partialSpeakerId: string | undefined = undefined
+  private partialHadSpeakerChange: boolean = false
 
   // Display settings (can override profile defaults)
-  private readonly displayWidthPx: number;
-  private readonly maxLines: number;
+  private readonly displayWidthPx: number
+  private readonly maxLines: number
 
-  constructor(
-    profile: DisplayProfile = G1_PROFILE,
-    options: CaptionsFormatterOptions = {},
-  ) {
-    this.profile = profile;
-    this.maxFinalTranscripts = options.maxFinalTranscripts ?? 30;
+  constructor(profile: DisplayProfile = G1_PROFILE, options: CaptionsFormatterOptions = {}) {
+    this.profile = profile
+    this.maxFinalTranscripts = options.maxFinalTranscripts ?? 30
 
     // Allow overriding display dimensions (for user settings like narrow/medium/wide)
-    this.displayWidthPx = options.displayWidthPx ?? profile.displayWidthPx;
-    this.maxLines = options.maxLines ?? profile.maxLines;
+    this.displayWidthPx = options.displayWidthPx ?? profile.displayWidthPx
+    this.maxLines = options.maxLines ?? profile.maxLines
 
     // Determine break mode
     // Default to character breaking for 100% line utilization
     // Note: Once SDK supports 'character-no-hyphen', we should switch to that
-    const breakMode =
-      options.breakMode ??
-      (options.useCharacterBreaking !== false ? "character" : "word");
+    const breakMode = options.breakMode ?? (options.useCharacterBreaking !== false ? "character" : "word")
 
     // Create display utilities
-    this.measurer = new TextMeasurer(profile);
+    this.measurer = new TextMeasurer(profile)
     this.wrapper = new TextWrapper(this.measurer, {
       breakMode,
       hyphenChar: "-",
       minCharsBeforeHyphen: 3,
-    });
-    this.helpers = new DisplayHelpers(this.measurer, this.wrapper);
+    })
+    this.helpers = new DisplayHelpers(this.measurer, this.wrapper)
   }
 
   /**
@@ -157,94 +152,78 @@ export class CaptionsFormatter {
     speakerId?: string,
     speakerChanged?: boolean,
   ): FormatResult {
-    const cleanText = text?.trim() ?? "";
+    const cleanText = text?.trim() ?? ""
 
     if (!isFinal) {
-      return this.processInterim(cleanText, speakerId, speakerChanged);
+      return this.processInterim(cleanText, speakerId, speakerChanged)
     } else {
-      return this.processFinal(cleanText, speakerId, speakerChanged);
+      return this.processFinal(cleanText, speakerId, speakerChanged)
     }
   }
 
   /**
    * Process an interim (non-final) transcription.
    */
-  private processInterim(
-    text: string,
-    speakerId?: string,
-    speakerChanged?: boolean,
-  ): FormatResult {
+  private processInterim(text: string, speakerId?: string, speakerChanged?: boolean): FormatResult {
     // Track speaker info for this partial
     if (speakerChanged && speakerId) {
-      this.partialSpeakerId = speakerId;
-      this.partialHadSpeakerChange = true;
+      this.partialSpeakerId = speakerId
+      this.partialHadSpeakerChange = true
     } else if (speakerId && speakerId !== this.partialSpeakerId) {
-      this.partialSpeakerId = speakerId;
-      this.partialHadSpeakerChange = true;
+      this.partialSpeakerId = speakerId
+      this.partialHadSpeakerChange = true
     }
 
     // Build display text from history + partial
-    const displayText = this.buildDisplayText(
-      text,
-      this.partialSpeakerId,
-      this.partialHadSpeakerChange,
-    );
+    const displayText = this.buildDisplayText(text, this.partialSpeakerId, this.partialHadSpeakerChange)
 
-    return this.wrapAndFormat(displayText);
+    return this.wrapAndFormat(displayText)
   }
 
   /**
    * Process a final transcription.
    */
-  private processFinal(
-    text: string,
-    speakerId?: string,
-    speakerChanged?: boolean,
-  ): FormatResult {
+  private processFinal(text: string, speakerId?: string, speakerChanged?: boolean): FormatResult {
     // Use tracked partial speaker info if available
-    const finalSpeakerId = speakerId || this.partialSpeakerId;
-    const finalSpeakerChanged = speakerChanged || this.partialHadSpeakerChange;
+    const finalSpeakerId = speakerId || this.partialSpeakerId
+    const finalSpeakerChanged = speakerChanged || this.partialHadSpeakerChange
 
     // Clear partial speaker tracking
-    this.partialSpeakerId = undefined;
-    this.partialHadSpeakerChange = false;
+    this.partialSpeakerId = undefined
+    this.partialHadSpeakerChange = false
 
     // Add to transcript history
     if (text) {
-      this.addToHistory(text, finalSpeakerId, finalSpeakerChanged);
+      this.addToHistory(text, finalSpeakerId, finalSpeakerChanged)
     }
 
     // Build display text from history only (no partial)
-    const displayText = this.buildDisplayText("", undefined, false);
+    const displayText = this.buildDisplayText("", undefined, false)
 
-    return this.wrapAndFormat(displayText);
+    return this.wrapAndFormat(displayText)
   }
 
   /**
    * Build display text from history and optional partial text.
    * Adds speaker labels [N]: when speaker changes, always on a new line.
    */
-  private buildDisplayText(
-    partialText: string,
-    partialSpeakerId?: string,
-    partialSpeakerChanged?: boolean,
-  ): string {
-    let result = "";
+  private buildDisplayText(partialText: string, partialSpeakerId?: string, partialSpeakerChanged?: boolean): string {
+    let result = ""
 
     // Add history entries with speaker labels
     for (const entry of this.finalTranscriptHistory) {
       if (entry.hadSpeakerChange && entry.speakerId) {
         // Speaker change: add newline before label (if not at start)
         if (result.length > 0) {
-          result += "\n";
+          result += "\n"
         }
-        result += `[${entry.speakerId}]: ${entry.text}`;
+        result += `[${entry.speakerId}]: ${entry.text}`
       } else {
         // Same speaker: append with space
         if (result.length > 0) {
-          result += " ";
+          result += " "
         }
-        result += entry.text;
+        result += entry.text
       }
     }
 
@@ -253,19 +232,19 @@ export class CaptionsFormatter {
       if (partialSpeakerChanged && partialSpeakerId) {
         // Speaker change: add newline before label (if not at start)
         if (result.length > 0) {
-          result += "\n";
+          result += "\n"
         }
-        result += `[${partialSpeakerId}]: ${partialText}`;
+        result += `[${partialSpeakerId}]: ${partialText}`
       } else {
         // Same speaker: append with space
         if (result.length > 0) {
-          result += " ";
+          result += " "
         }
-        result += partialText;
+        result += partialText
       }
     }
 
-    return result;
+    return result
   }
 
   /**
@@ -278,44 +257,40 @@ export class CaptionsFormatter {
       maxWidthPx: this.displayWidthPx, // Use instance setting, not profile
       maxLines: Infinity, // Don't truncate during wrapping
       maxBytes: Infinity, // Don't truncate during wrapping
-    });
+    })
 
     // Keep most recent lines (from the END) if we have too many
-    let lines = result.lines;
+    let lines = result.lines
     if (lines.length > this.maxLines) {
-      lines = lines.slice(-this.maxLines);
+      lines = lines.slice(-this.maxLines)
     }
 
     // Check if we truncated (had more lines than maxLines)
-    const wasTruncated = result.lines.length > this.maxLines;
+    const wasTruncated = result.lines.length > this.maxLines
 
     return {
       lines,
       displayText: lines.join("\n"),
       truncated: wasTruncated,
       lineMetrics: result.lineMetrics.slice(-this.maxLines),
-    };
+    }
   }
 
   /**
    * Add a transcript to history with speaker information.
    */
-  private addToHistory(
-    transcript: string,
-    speakerId?: string,
-    speakerChanged?: boolean,
-  ): void {
-    if (!transcript.trim()) return;
+  private addToHistory(transcript: string, speakerId?: string, speakerChanged?: boolean): void {
+    if (!transcript.trim()) return
 
     this.finalTranscriptHistory.push({
       text: transcript,
       speakerId,
       hadSpeakerChange: speakerChanged ?? false,
-    });
+    })
 
     // Trim history if needed
     while (this.finalTranscriptHistory.length > this.maxFinalTranscripts) {
-      this.finalTranscriptHistory.shift();
+      this.finalTranscriptHistory.shift()
     }
   }
 
@@ -323,7 +298,7 @@ export class CaptionsFormatter {
    * Get the transcript history with speaker information preserved.
    */
   getFinalTranscriptHistory(): TranscriptHistoryEntry[] {
-    return [...this.finalTranscriptHistory];
+    return [...this.finalTranscriptHistory]
   }
 
   /**
@@ -331,25 +306,25 @@ export class CaptionsFormatter {
    * Note: This doesn't include speaker labels - use buildDisplayText for that.
    */
   getCombinedTranscriptHistory(): string {
-    return this.finalTranscriptHistory.map((entry) => entry.text).join(" ");
+    return this.finalTranscriptHistory.map((entry) => entry.text).join(" ")
   }
 
   /**
    * Clear all history and reset state.
    */
   clear(): void {
-    this.finalTranscriptHistory = [];
-    this.partialSpeakerId = undefined;
-    this.partialHadSpeakerChange = false;
+    this.finalTranscriptHistory = []
+    this.partialSpeakerId = undefined
+    this.partialHadSpeakerChange = false
   }
 
   /**
    * Set the maximum number of final transcripts to keep.
    */
   setMaxFinalTranscripts(max: number): void {
-    this.maxFinalTranscripts = max;
+    this.maxFinalTranscripts = max
     while (this.finalTranscriptHistory.length > this.maxFinalTranscripts) {
-      this.finalTranscriptHistory.shift();
+      this.finalTranscriptHistory.shift()
     }
   }
 
@@ -357,48 +332,48 @@ export class CaptionsFormatter {
    * Get the current maximum final transcripts setting.
    */
   getMaxFinalTranscripts(): number {
-    return this.maxFinalTranscripts;
+    return this.maxFinalTranscripts
   }
 
   /**
    * Get the display profile.
    */
   getProfile(): DisplayProfile {
-    return this.profile;
+    return this.profile
   }
 
   /**
    * Get the text measurer.
    */
   getMeasurer(): TextMeasurer {
-    return this.measurer;
+    return this.measurer
   }
 
   /**
    * Get the text wrapper.
    */
   getWrapper(): TextWrapper {
-    return this.wrapper;
+    return this.wrapper
   }
 
   /**
    * Get the display helpers.
    */
   getHelpers(): DisplayHelpers {
-    return this.helpers;
+    return this.helpers
   }
 
   /**
    * Get the maximum lines for the display.
    */
   getMaxLines(): number {
-    return this.maxLines;
+    return this.maxLines
   }
 
   /**
    * Get the display width in pixels.
    */
   getDisplayWidthPx(): number {
-    return this.displayWidthPx;
+    return this.displayWidthPx
   }
 }

@@ -12,13 +12,8 @@ import {join} from "path"
 
 const LANGS = ["ar", "de", "en", "es", "fr", "it", "ko", "nl", "pt", "ru", "tr", "zh_cn"] as const
 
-const defaultSource = join(
-  import.meta.dir,
-  "../../../MentraLink/src/FrequencyWords/content/2018",
-)
-const sourceRoot = process.argv[2]
-  ? join(process.argv[2], "content/2018")
-  : defaultSource
+const defaultSource = join(import.meta.dir, "../../../MentraLink/src/FrequencyWords/content/2018")
+const sourceRoot = process.argv[2] ? join(process.argv[2], "content/2018") : defaultSource
 const outDir = join(import.meta.dir, "../data/freq")
 
 /**

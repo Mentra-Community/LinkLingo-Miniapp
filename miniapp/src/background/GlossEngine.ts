@@ -191,11 +191,7 @@ export class GlossEngine {
     }, tunable("interimStableMs"))
   }
 
-  private triggerInterimGloss(
-    settings: LinkLingoSettings,
-    utteranceId: string | undefined,
-    now: number,
-  ): void {
+  private triggerInterimGloss(settings: LinkLingoSettings, utteranceId: string | undefined, now: number): void {
     const disposition = this.queueGloss(settings, now, utteranceId, "interim")
     if (disposition !== "queued_gloss" || !utteranceId) return
     diagnostics.increment("engine.gloss_interim_triggered")
@@ -518,7 +514,10 @@ export class GlossEngine {
 }
 
 function bare(word: string): string {
-  return word.toLowerCase().replace(/\s*\([^)]*\)/g, "").trim()
+  return word
+    .toLowerCase()
+    .replace(/\s*\([^)]*\)/g, "")
+    .trim()
 }
 
 /**

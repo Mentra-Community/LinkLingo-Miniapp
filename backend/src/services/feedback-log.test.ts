@@ -52,7 +52,12 @@ describe("FeedbackLog", () => {
   test("format shows note, rows and the answer", () => {
     const log = new FeedbackLog(3_600_000, 100, null)
     const entry = log.record(
-      input({snapshot: {...input().snapshot, recentWords: [...input().snapshot.recentWords, {word: "参观", translation: "to visit", at: 900}]}}),
+      input({
+        snapshot: {
+          ...input().snapshot,
+          recentWords: [...input().snapshot.recentWords, {word: "参观", translation: "to visit", at: 900}],
+        },
+      }),
       0,
     )
     const text = formatFeedbackEntry(entry)

@@ -7,7 +7,12 @@ import type {TranscriptEntry} from "./transcript-log"
 
 const HOUR = 3_600_000
 
-function heard(user: string, at: number, text: string, disposition: TranscriptDisposition = "queued_gloss"): TranscriptEntry {
+function heard(
+  user: string,
+  at: number,
+  text: string,
+  disposition: TranscriptDisposition = "queued_gloss",
+): TranscriptEntry {
   return {
     id: `${at}-${text}`,
     at,
@@ -39,13 +44,19 @@ function setup(transcripts: TranscriptEntry[], reply = '{"items":[]}') {
 }
 
 const now = Date.now()
-const day = (user = "u1") => Array.from({length: 6}, (_, i) => heard(user, now - (i + 1) * HOUR, `我昨天去了一个博物馆${i}`))
+const day = (user = "u1") =>
+  Array.from({length: 6}, (_, i) => heard(user, now - (i + 1) * HOUR, `我昨天去了一个博物馆${i}`))
 
 describe("daily review", () => {
   test("keeps only short excerpts, never the transcript", async () => {
     const reply = JSON.stringify({
       items: [
-        {said: "我昨天去了一个博物馆看了很多很多很多的东西", better: "我昨天去了一家博物馆", rule: "Use 家 for museums.", confidence: "high"},
+        {
+          said: "我昨天去了一个博物馆看了很多很多很多的东西",
+          better: "我昨天去了一家博物馆",
+          rule: "Use 家 for museums.",
+          confidence: "high",
+        },
         {said: "same", better: "same", rule: "echo", confidence: "high"},
       ],
     })
@@ -54,7 +65,12 @@ describe("daily review", () => {
     const events = await history.events("u1", now - HOUR, now + HOUR, now)
     const review = events.find((e) => e.kind === "review")
     expect(review?.kind === "review" && review.items).toEqual([
-      {said: "我昨天去了一个博物馆看了很多很多很多的东", better: "我昨天去了一家博物馆", rule: "Use 家 for museums.", confidence: "high"},
+      {
+        said: "我昨天去了一个博物馆看了很多很多很多的东",
+        better: "我昨天去了一家博物馆",
+        rule: "Use 家 for museums.",
+        confidence: "high",
+      },
     ])
     expect(review?.kind === "review" && [...review.items[0]!.said].length).toBe(20)
   })
@@ -63,7 +79,12 @@ describe("daily review", () => {
     const {history, reviewer, prompts} = setup(day())
     await reviewer.runOnce(now)
     expect(await reviewer.runOnce(now + HOUR)).toBe(0)
-    const fresh = new DailyReviewer({history, transcripts: () => day(), generate: async () => ({text: '{"items":[]}'}), enabled: () => true})
+    const fresh = new DailyReviewer({
+      history,
+      transcripts: () => day(),
+      generate: async () => ({text: '{"items":[]}'}),
+      enabled: () => true,
+    })
     expect(await fresh.runOnce(now + 2 * HOUR)).toBe(0)
     expect(prompts).toHaveLength(1)
   })
@@ -85,7 +106,9 @@ describe("daily review", () => {
   })
 
   test("unknown confidence falls back to low and malformed output stores nothing", () => {
-    expect(sanitizeItems({items: [{said: "一个人们", better: "人们", rule: "x", confidence: "sure"}]})[0]!.confidence).toBe("low")
+    expect(
+      sanitizeItems({items: [{said: "一个人们", better: "人们", rule: "x", confidence: "sure"}]})[0]!.confidence,
+    ).toBe("low")
     expect(sanitizeItems({nope: true})).toEqual([])
   })
 })

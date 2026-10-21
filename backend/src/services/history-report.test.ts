@@ -8,8 +8,22 @@ const DAY = 24 * HOUR
 /** Shenzhen. */
 const TZ = -480
 
-const gloss = (at: number, word: string, translation = "x"): HistoryEvent => ({kind: "gloss", at, word, translation, in: "zh", out: "en"})
-const reverse = (at: number, word: string): HistoryEvent => ({kind: "reverse", at, word, translation: "博物馆", in: "en", out: "zh"})
+const gloss = (at: number, word: string, translation = "x"): HistoryEvent => ({
+  kind: "gloss",
+  at,
+  word,
+  translation,
+  in: "zh",
+  out: "en",
+})
+const reverse = (at: number, word: string): HistoryEvent => ({
+  kind: "reverse",
+  at,
+  word,
+  translation: "博物馆",
+  in: "en",
+  out: "zh",
+})
 
 describe("report periods", () => {
   test("a Shenzhen day runs from 16:00 UTC the evening before", () => {
@@ -79,7 +93,11 @@ describe("buildReport", () => {
       reverse(t(3, 11), "museum"),
       reverse(t(4, 9), "exhibition"),
       {kind: "flag", at: t(4, 10), id: "f1", note: "that was wrong", change: "started"},
-      {kind: "review", at: t(5, 8), items: [{said: "一个博物馆", better: "一家博物馆", rule: "Use 家.", confidence: "high"}]},
+      {
+        kind: "review",
+        at: t(5, 8),
+        items: [{said: "一个博物馆", better: "一家博物馆", rule: "Use 家.", confidence: "high"}],
+      },
     ]
     const report = buildReport(period, events)
     expect(report.mistakes.fallbacks.map((w) => [w.word, w.count])).toEqual([

@@ -75,12 +75,12 @@ bun run bench:models:doppler -- --only cerebras   # one candidate
 filter and acceptance gate, so its recall is comparable to `eval:gloss`.
 Measured over 78 calls each (add the caller's network RTT to all rows):
 
-| model | p50 | p95 | recall |
-| --- | --- | --- | --- |
-| `openai/gpt-oss-120b` @ cerebras | 328ms | 430ms | 92% |
-| `openai/gpt-oss-120b` @ groq | 300ms | 491ms | 92% |
-| `openai/gpt-oss-20b` @ groq | 379ms | 493ms | 92% |
-| `google/gemini-3.5-flash-lite` | 755ms | 976ms | 86% |
+| model                            | p50   | p95   | recall |
+| -------------------------------- | ----- | ----- | ------ |
+| `openai/gpt-oss-120b` @ cerebras | 328ms | 430ms | 92%    |
+| `openai/gpt-oss-120b` @ groq     | 300ms | 491ms | 92%    |
+| `openai/gpt-oss-20b` @ groq      | 379ms | 493ms | 92%    |
+| `google/gemini-3.5-flash-lite`   | 755ms | 976ms | 86%    |
 
 Two constraints come from reasoning models and are already handled in
 `openrouter.ts`: every object in the JSON schema carries
@@ -162,7 +162,7 @@ should not be acted on.
 
 Timings are keyed to a **client-minted** request id sent as `X-Request-Id`. The
 phone only learns its own round trip after the response lands, so those numbers
-ride along with the *next* request and the backend back-fills them onto the
+ride along with the _next_ request and the backend back-fills them onto the
 entry whose id matches. Attaching them to the request that carried them would
 pair one gloss's queue wait with the previous gloss's round trip. The newest
 call in each session therefore always shows a pending `trigger->render`.
@@ -191,7 +191,7 @@ Diagnostics panel so one installed build can be compared against the baseline:
   being revised. The ASR final for the same utterance then hits the existing
   duplicate check instead of costing a second call.
 - **Short gap between glosses** (`fastCooldown`, on): 600 ms instead of 2 s,
-  bypassed entirely when 8+ new characters have arrived. A cooldown hit *drops*
+  bypassed entirely when 8+ new characters have arrived. A cooldown hit _drops_
   a gloss rather than delaying it, so its cost shows up as a missing gloss in
   the transcript tape, not as latency on a request.
 - **Pre-connect**: `GET /ping` on an interim after 20 s idle, plus a 25 s

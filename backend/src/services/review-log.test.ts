@@ -112,9 +112,7 @@ describe("ReviewLog", () => {
   test("timings for an entry that has already aged out are dropped, not guessed at", () => {
     const log = new ReviewLog(24 * HOUR, 100, null)
     runWithRequestContext({requestId: "req-1"}, () => log.record(entry(), 1_000))
-    expect(
-      log.applyPreviousClientMetrics({requestId: "gone", roundTripMs: 99, outcome: "ok"}),
-    ).toBe(false)
+    expect(log.applyPreviousClientMetrics({requestId: "gone", roundTripMs: 99, outcome: "ok"})).toBe(false)
     expect(log.list({}, 2_000)[0].clientRoundTripMs).toBeUndefined()
   })
 

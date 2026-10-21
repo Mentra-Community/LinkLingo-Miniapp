@@ -9,12 +9,7 @@
  * idle window would be read against request N-1's round trip.
  */
 
-import type {
-  GlossClientPrevious,
-  GlossClientTelemetry,
-  GlossQueueReason,
-  GlossTrigger,
-} from "../shared/types"
+import type {GlossClientPrevious, GlossClientTelemetry, GlossQueueReason, GlossTrigger} from "../shared/types"
 import {CLIENT_BUILD_ID, CLIENT_VERSION, SESSION_ID, newRequestId, nextRequestSeq} from "./identity"
 
 export interface GlossAttempt {
@@ -52,8 +47,7 @@ export class GlossTelemetry {
   /** Called immediately before the gloss request is sent. */
   begin(attempt: GlossAttempt, now = Date.now()): {requestId: string; client: GlossClientTelemetry} {
     const requestId = newRequestId()
-    const networkIdleMs =
-      this.lastBackendRequestAt == null ? undefined : Math.max(0, now - this.lastBackendRequestAt)
+    const networkIdleMs = this.lastBackendRequestAt == null ? undefined : Math.max(0, now - this.lastBackendRequestAt)
     this.noteBackendRequest(now)
     this.open = {requestId, eligibleAt: attempt.eligibleAt}
 

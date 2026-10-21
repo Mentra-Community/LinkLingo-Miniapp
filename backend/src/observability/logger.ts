@@ -98,9 +98,7 @@ function formatJson(level: LogLevel, scope: string, message: string, fields: Log
 function emit(level: LogLevel, scope: string, message: string, fields: LogFields): void {
   if (LEVEL_WEIGHT[level] < LEVEL_WEIGHT[resolveLevel()]) return
   const request = currentRequestContext()
-  const enriched: LogFields = request
-    ? {req: request.requestId, user: request.userId, ...fields}
-    : fields
+  const enriched: LogFields = request ? {req: request.requestId, user: request.userId, ...fields} : fields
   const line =
     resolveFormat() === "json"
       ? formatJson(level, scope, message, enriched)

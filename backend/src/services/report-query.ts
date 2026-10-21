@@ -28,7 +28,8 @@ export async function loadReport(c: Context, threshold = repeatThreshold()): Pro
   const tz = Number(c.req.query("tzOffsetMin") ?? 0)
   if (!Number.isInteger(tz) || Math.abs(tz) > 14 * 60) return c.json({error: "invalid tzOffsetMin"}, 400)
   const date = c.req.query("date")
-  if (date && (!DATE.test(date) || Number.isNaN(Date.parse(date)))) return c.json({error: "date must be YYYY-MM-DD"}, 400)
+  if (date && (!DATE.test(date) || Number.isNaN(Date.parse(date))))
+    return c.json({error: "date must be YYYY-MM-DD"}, 400)
 
   const user = digest(userId)
   const period = reportPeriod(range, date, tz)

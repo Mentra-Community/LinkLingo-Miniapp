@@ -85,7 +85,15 @@ describe("memory ring reload", () => {
     const second = new ReviewLog(24 * HOUR, 100, null)
     second.loadFrom([saved])
     expect(second.list({}, now).map((e) => e.id)).toEqual([saved.id])
-    expect(mergeById([{id: "a", at: 2}], [{id: "a", at: 2, user: "x"}, {id: "b", at: 1}])).toEqual([
+    expect(
+      mergeById(
+        [{id: "a", at: 2}],
+        [
+          {id: "a", at: 2, user: "x"},
+          {id: "b", at: 1},
+        ],
+      ),
+    ).toEqual([
       {id: "b", at: 1},
       {id: "a", at: 2, user: "x"},
     ])

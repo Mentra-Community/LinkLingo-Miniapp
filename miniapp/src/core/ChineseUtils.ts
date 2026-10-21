@@ -49,9 +49,7 @@ function optionalRequire(id: string): unknown {
 function getJieba(): JiebaLike | null {
   if (jiebaInstance !== null) return jiebaInstance || null
   try {
-    const mod = optionalRequire("@node-rs/jieba") as
-      | {Jieba: {withDict(d: unknown): JiebaLike}}
-      | undefined
+    const mod = optionalRequire("@node-rs/jieba") as {Jieba: {withDict(d: unknown): JiebaLike}} | undefined
     const dictMod = optionalRequire("@node-rs/jieba/dict") as {dict: unknown} | undefined
     if (!mod || !dictMod) {
       jiebaInstance = false

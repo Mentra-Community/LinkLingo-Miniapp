@@ -54,7 +54,11 @@ function parseTime(raw: string | undefined, now = Date.now()): number | undefine
 }
 
 if (flag("help")) {
-  console.log(readFileSync(import.meta.path, "utf8").split("*/")[0].replace(/^\/\*\*?\s?| \* ?/gm, ""))
+  console.log(
+    readFileSync(import.meta.path, "utf8")
+      .split("*/")[0]
+      .replace(/^\/\*\*?\s?| \* ?/gm, ""),
+  )
   process.exit(0)
 }
 
@@ -80,7 +84,9 @@ async function fetchFromReview<T>(path: string, query: URLSearchParams): Promise
     headers: {Authorization: `Bearer ${token}`},
   })
   if (response.status === 404) {
-    console.error(`${url} has no review log: LINKLINGO_REVIEW_TOKEN is not set on the backend, or it predates this feature`)
+    console.error(
+      `${url} has no review log: LINKLINGO_REVIEW_TOKEN is not set on the backend, or it predates this feature`,
+    )
     process.exit(1)
   }
   if (!response.ok) {
@@ -102,7 +108,9 @@ async function fetchEntries(): Promise<ReviewEntry[]> {
     headers: {Authorization: `Bearer ${token}`},
   })
   if (response.status === 404) {
-    console.error(`${url} has no review log: LINKLINGO_REVIEW_TOKEN is not set on the backend, or it predates this feature`)
+    console.error(
+      `${url} has no review log: LINKLINGO_REVIEW_TOKEN is not set on the backend, or it predates this feature`,
+    )
     process.exit(1)
   }
   if (!response.ok) {
@@ -125,7 +133,9 @@ async function fetchTranscripts(): Promise<TranscriptEntry[]> {
     headers: {Authorization: `Bearer ${token}`},
   })
   if (response.status === 404) {
-    console.error(`${url} has no review log: LINKLINGO_REVIEW_TOKEN is not set on the backend, or it predates this feature`)
+    console.error(
+      `${url} has no review log: LINKLINGO_REVIEW_TOKEN is not set on the backend, or it predates this feature`,
+    )
     process.exit(1)
   }
   if (!response.ok) {
@@ -276,8 +286,20 @@ function printGroup(rows: ReviewEntry[], key: string, bySession: boolean): Group
   const triggers = tally(rows.map((e) => e.trigger))
   if (Object.keys(triggers).length > 0) console.log(`  trigger:         ${renderTally(triggers)}`)
 
-  console.log(`  phone RTT/idle:  ${byIdle(rows, (e) => e.networkIdleMs, (e) => e.clientRoundTripMs)}`)
-  console.log(`  model/llm idle:  ${byIdle(rows, (e) => e.llmIdleMs, (e) => e.llmMs ?? e.geminiMs)}`)
+  console.log(
+    `  phone RTT/idle:  ${byIdle(
+      rows,
+      (e) => e.networkIdleMs,
+      (e) => e.clientRoundTripMs,
+    )}`,
+  )
+  console.log(
+    `  model/llm idle:  ${byIdle(
+      rows,
+      (e) => e.llmIdleMs,
+      (e) => e.llmMs ?? e.geminiMs,
+    )}`,
+  )
   console.log(`  outcomes:        ${renderTally(tally(rows.map((e) => e.outcome)))}`)
   console.log(
     `  volume:          ${sessions.size || "?"} sessions, ${perMinute} req/min over ${Math.round(span / 1000)}s`,
@@ -405,7 +427,9 @@ if (wantFeedback) {
   console.log("=".repeat(72))
   console.log(`${reports.length} feedback exchanges from ${source} since ${since}`)
   console.log(`models:      ${[...new Set(reports.map((e) => e.analysis.model))].join(", ")}`)
-  console.log(`latency:     p50=${latencies[Math.floor(latencies.length * 0.5)]}ms max=${latencies[latencies.length - 1]}ms`)
+  console.log(
+    `latency:     p50=${latencies[Math.floor(latencies.length * 0.5)]}ms max=${latencies[latencies.length - 1]}ms`,
+  )
   process.exit(0)
 }
 
@@ -519,7 +543,10 @@ if (wantLatency) {
 
 if (flag("problems")) {
   entries = entries.filter(
-    (e) => e.rejected.some((r) => PROMPT_PROBLEMS.has(r.reason)) || e.outcome === "parse_failed" || e.outcome === "llm_error",
+    (e) =>
+      e.rejected.some((r) => PROMPT_PROBLEMS.has(r.reason)) ||
+      e.outcome === "parse_failed" ||
+      e.outcome === "llm_error",
   )
 }
 
@@ -551,7 +578,10 @@ const problems = rejects.filter((r) => PROMPT_PROBLEMS.has(r.reason))
 const prompts = [...new Set(entries.map((e) => `${e.op}:${e.promptVersion}`))]
 const shown = entries.reduce((n, e) => n + e.accepted.length, 0)
 const latencies = entries.map((e) => e.totalMs).sort((a, b) => a - b)
-const modelLatencies = entries.map((e) => e.geminiMs).filter((n): n is number => n != null).sort((a, b) => a - b)
+const modelLatencies = entries
+  .map((e) => e.geminiMs)
+  .filter((n): n is number => n != null)
+  .sort((a, b) => a - b)
 const phoneLatencies = entries
   .map((e) => e.clientRoundTripMs)
   .filter((n): n is number => n != null)

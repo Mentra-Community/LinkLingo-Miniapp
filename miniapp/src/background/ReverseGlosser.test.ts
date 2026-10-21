@@ -72,7 +72,13 @@ describe("ReverseGlosser", () => {
     expect(reverse.consider("我想去那个 museum", zhEn)).toBe(true)
     await tick()
     expect(sent).toHaveLength(1)
-    expect(sent[0]).toMatchObject({inputLanguage: "en", outputLanguage: "zh", purpose: "reverse", knownRank: 500, maxWords: 2})
+    expect(sent[0]).toMatchObject({
+      inputLanguage: "en",
+      outputLanguage: "zh",
+      purpose: "reverse",
+      knownRank: 500,
+      maxWords: 2,
+    })
     expect(shown.map((w) => [w.word, w.direction])).toEqual([["museum", "reverse"]])
   })
 

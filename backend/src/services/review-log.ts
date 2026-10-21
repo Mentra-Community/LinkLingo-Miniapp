@@ -257,9 +257,7 @@ export function formatReviewEntry(entry: ReviewEntry): string {
   const lines = [head, `  heard:      ${entry.context || "(empty)"}`]
   if (entry.candidates) lines.push(`  candidates: ${entry.candidates.join(", ") || "(none)"}`)
   if (entry.raw != null) lines.push(`  model:      ${entry.raw.replace(/\s+/g, " ").trim()}`)
-  lines.push(
-    `  shown:      ${entry.accepted.map((p) => `${p.word} -> ${p.translation}`).join(" | ") || "(nothing)"}`,
-  )
+  lines.push(`  shown:      ${entry.accepted.map((p) => `${p.word} -> ${p.translation}`).join(" | ") || "(nothing)"}`)
   if (entry.rejected.length > 0) {
     lines.push(`  dropped:    ${entry.rejected.map((r) => `${r.word} (${r.reason})`).join(", ")}`)
   }

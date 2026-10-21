@@ -64,33 +64,38 @@ export class LinkLingoController {
     }
     this.display = new DisplayRenderer(session)
     this.cache = new TranslationCache(session)
-    this.engine = new GlossEngine(session, this.buffer, {
-      onWords: (incoming) => {
-        if (incoming.length > 0) {
-          this.words = [...this.words, ...incoming].slice(-6)
-        }
-        this.refreshWords()
+    this.engine = new GlossEngine(
+      session,
+      this.buffer,
+      {
+        onWords: (incoming) => {
+          if (incoming.length > 0) {
+            this.words = [...this.words, ...incoming].slice(-6)
+          }
+          this.refreshWords()
+        },
+        onProfiling: (profiling) => {
+          this.profiling = profiling
+          this.backend = {status: profiling.model === "mock" ? "mock" : "ok"}
+          this.ui.send("link:profiling", profiling)
+          this.ui.send("link:backend-status", this.backend)
+        },
+        onBackendError: (message) => {
+          // Only log on transition so a persistent outage does not spam logcat
+          // once per utterance.
+          if (this.backend.status !== "error" || this.backend.lastError !== message) {
+            log.warn("backend degraded", {message, previous: this.backend.status})
+          }
+          this.backend = {status: "error", lastError: message}
+          this.ui.send("link:backend-status", this.backend)
+        },
+        onProcessing: (processing) => {
+          this.processing = processing
+          this.ui.send("link:processing", {processing})
+        },
       },
-      onProfiling: (profiling) => {
-        this.profiling = profiling
-        this.backend = {status: profiling.model === "mock" ? "mock" : "ok"}
-        this.ui.send("link:profiling", profiling)
-        this.ui.send("link:backend-status", this.backend)
-      },
-      onBackendError: (message) => {
-        // Only log on transition so a persistent outage does not spam logcat
-        // once per utterance.
-        if (this.backend.status !== "error" || this.backend.lastError !== message) {
-          log.warn("backend degraded", {message, previous: this.backend.status})
-        }
-        this.backend = {status: "error", lastError: message}
-        this.ui.send("link:backend-status", this.backend)
-      },
-      onProcessing: (processing) => {
-        this.processing = processing
-        this.ui.send("link:processing", {processing})
-      },
-    }, this.cache)
+      this.cache,
+    )
   }
 
   async start(): Promise<void> {
@@ -150,11 +155,14 @@ export class LinkLingoController {
     }
     const expiry = this.engine.nextExpiry(this.words, this.settings, now)
     if (expiry == null) return
-    this.wordExpiryTimer = setTimeout(() => {
-      this.wordExpiryTimer = null
-      diagnostics.increment("engine.words_expired")
-      this.refreshWords()
-    }, Math.max(50, expiry - now))
+    this.wordExpiryTimer = setTimeout(
+      () => {
+        this.wordExpiryTimer = null
+        diagnostics.increment("engine.words_expired")
+        this.refreshWords()
+      },
+      Math.max(50, expiry - now),
+    )
   }
 
   /**

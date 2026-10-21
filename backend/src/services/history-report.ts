@@ -31,7 +31,12 @@ function localMidnight(date: string, tzOffsetMin: number): number {
   return Date.parse(`${date}T00:00:00.000Z`) + tzOffsetMin * 60_000
 }
 
-export function reportPeriod(range: ReportRange, date: string | undefined, tzOffsetMin: number, now = Date.now()): ReportPeriod {
+export function reportPeriod(
+  range: ReportRange,
+  date: string | undefined,
+  tzOffsetMin: number,
+  now = Date.now(),
+): ReportPeriod {
   const end = date ?? localDate(now, tzOffsetMin)
   const endStart = localMidnight(end, tzOffsetMin)
   const from = range === "week" ? endStart - 6 * DAY_MS : endStart
@@ -40,7 +45,10 @@ export function reportPeriod(range: ReportRange, date: string | undefined, tzOff
 
 /** Pinyin and casing are display, not identity: 博物馆 (bó wù guǎn) and 博物馆 are one word. */
 function wordKey(word: string): string {
-  return word.toLowerCase().replace(/\s*\([^)]*\)/g, "").trim()
+  return word
+    .toLowerCase()
+    .replace(/\s*\([^)]*\)/g, "")
+    .trim()
 }
 
 function tally(events: Array<Extract<HistoryEvent, {kind: "gloss" | "reverse"}>>): Map<string, ReportWord> {
@@ -127,9 +135,7 @@ export function buildReport(
         .sort((a, b) => b.at - a.at)
         .slice(0, MAX_FLAGS)
         .map((f) => ({at: f.at, note: f.note, change: f.change})),
-      review: reviews
-        .sort((a, b) => b.at - a.at)
-        .flatMap((r) => r.items.map((item) => ({at: r.at, ...item}))),
+      review: reviews.sort((a, b) => b.at - a.at).flatMap((r) => r.items.map((item) => ({at: r.at, ...item}))),
     },
   }
 }

@@ -34,20 +34,9 @@ describe("prefilter parity with backend candidate selection", () => {
     for (const sample of corpus.samples) {
       for (const proficiency of LEVELS) {
         const knownRank = knownRankFor(proficiency)
-        const candidates = candidateWords(
-          sample.text,
-          sample.inputLanguage,
-          [],
-          knownRank,
-          sample.outputLanguage,
-        )
+        const candidates = candidateWords(sample.text, sample.inputLanguage, [], knownRank, sample.outputLanguage)
         if (candidates.length === 0) continue
-        const phoneWouldCall = hasRareToken(
-          sample.text,
-          sample.inputLanguage,
-          knownRank,
-          sample.outputLanguage,
-        )
+        const phoneWouldCall = hasRareToken(sample.text, sample.inputLanguage, knownRank, sample.outputLanguage)
         if (!phoneWouldCall) {
           missed.push(`p=${proficiency} "${sample.text}" (backend wanted ${candidates[0]!.word})`)
         }

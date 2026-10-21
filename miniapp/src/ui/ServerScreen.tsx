@@ -88,7 +88,11 @@ export function ServerScreen({screen, ctx}: {screen: Screen; ctx: BlockContext})
             ))}
           </div>
           <div className="period">
-            <button type="button" className="ghost" aria-label="Earlier" onClick={() => setDate((d) => shiftDate(d, -step))}>
+            <button
+              type="button"
+              className="ghost"
+              aria-label="Earlier"
+              onClick={() => setDate((d) => shiftDate(d, -step))}>
               ‹
             </button>
             <strong>{periodLabel(range, date)}</strong>

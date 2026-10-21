@@ -64,14 +64,18 @@ describe("server-driven UI contract", () => {
   test("the report view only uses known blocks and carries the mistakes sections", () => {
     const period = reportPeriod("week", "2026-10-06", -480)
     const view = buildReportView(
-      buildReport(period, [{kind: "reverse", at: period.from + 1000, word: "museum", translation: "博物馆", in: "en", out: "zh"}]),
+      buildReport(period, [
+        {kind: "reverse", at: period.from + 1000, word: "museum", translation: "博物馆", in: "en", out: "zh"},
+      ]),
     )
     const titles: string[] = []
     walk(view.blocks, (block) => {
       expect(VIEW_TYPES.has(block.type)).toBe(true)
       if ("title" in block && block.title) titles.push(block.title)
     })
-    expect(titles).toEqual(expect.arrayContaining(["Mistakes", "Words you couldn't say", "Not sticking yet", "Possible errors"]))
+    expect(titles).toEqual(
+      expect.arrayContaining(["Mistakes", "Words you couldn't say", "Not sticking yet", "Possible errors"]),
+    )
     expect(view.blocks.some((b) => b.type === "section" && b.blocks.some((x) => x.type === "bars"))).toBe(true)
   })
 })

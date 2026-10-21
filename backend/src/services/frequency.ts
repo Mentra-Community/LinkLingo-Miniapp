@@ -12,35 +12,35 @@ const log = createLogger("frequency")
 const jieba = Jieba.withDict(dict)
 
 const LANG_ALIASES: Record<string, string> = {
-  english: "en",
-  en: "en",
+  "english": "en",
+  "en": "en",
   "en-us": "en",
-  spanish: "es",
-  es: "es",
-  russian: "ru",
-  ru: "ru",
-  french: "fr",
-  fr: "fr",
-  chinese: "zh_cn",
-  zh: "zh_cn",
+  "spanish": "es",
+  "es": "es",
+  "russian": "ru",
+  "ru": "ru",
+  "french": "fr",
+  "fr": "fr",
+  "chinese": "zh_cn",
+  "zh": "zh_cn",
   "zh-cn": "zh_cn",
   "zh_cn": "zh_cn",
   "chinese (hanzi)": "zh_cn",
   "chinese (pinyin)": "zh_cn",
-  german: "de",
-  de: "de",
-  arabic: "ar",
-  ar: "ar",
-  korean: "ko",
-  ko: "ko",
-  italian: "it",
-  it: "it",
-  turkish: "tr",
-  tr: "tr",
-  portuguese: "pt",
-  pt: "pt",
-  dutch: "nl",
-  nl: "nl",
+  "german": "de",
+  "de": "de",
+  "arabic": "ar",
+  "ar": "ar",
+  "korean": "ko",
+  "ko": "ko",
+  "italian": "it",
+  "it": "it",
+  "turkish": "tr",
+  "tr": "tr",
+  "portuguese": "pt",
+  "pt": "pt",
+  "dutch": "nl",
+  "nl": "nl",
 }
 
 /** Vocabulary size assumed for proficiency 0 and 100 respectively (roughly A1 to C2). */
@@ -209,7 +209,10 @@ export function knownRankFor(proficiency: number): number {
 }
 
 function normalizeLang(code: string): string {
-  const key = code.toLowerCase().replace(/\(.*?\)/g, "").trim()
+  const key = code
+    .toLowerCase()
+    .replace(/\(.*?\)/g, "")
+    .trim()
   const bare = key.split("-")[0] ?? key
   return LANG_ALIASES[key] ?? LANG_ALIASES[bare] ?? (bare === "zh" ? "zh_cn" : bare)
 }
@@ -260,9 +263,17 @@ function loadDict(lang: string): LangDict | null {
 
 function tokenize(text: string, lang: string): string[] {
   if (lang === "zh_cn" || CJK.test(text)) {
-    return stitchSplitCjkSingles(jieba.cut(text).map((w) => w.trim()).filter(Boolean))
+    return stitchSplitCjkSingles(
+      jieba
+        .cut(text)
+        .map((w) => w.trim())
+        .filter(Boolean),
+    )
   }
-  return text.split(/\s+/).map((w) => w.trim()).filter(Boolean)
+  return text
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter(Boolean)
 }
 
 /**
@@ -401,7 +412,10 @@ function effectiveRank(token: string, dict: LangDict): number | null {
 }
 
 export function lookupRank(word: string, language: string): number | null {
-  const cleaned = word.split("'")[0].replace(/[?。!.,;？"，！、]/g, "").trim()
+  const cleaned = word
+    .split("'")[0]
+    .replace(/[?。!.,;？"，！、]/g, "")
+    .trim()
   if (!cleaned) return null
   const dict = dictForToken(cleaned, normalizeLang(language))
   if (!dict) return null
@@ -462,7 +476,14 @@ export function candidateWords(
   knownRank = knownRankFor(50),
   outputLanguage?: string,
 ): WordCandidate[] {
-  const recentSet = new Set(recent.map((w) => w.toLowerCase().replace(/\s*\([^)]*\)/g, "").trim()))
+  const recentSet = new Set(
+    recent.map((w) =>
+      w
+        .toLowerCase()
+        .replace(/\s*\([^)]*\)/g, "")
+        .trim(),
+    ),
+  )
   const known: WordCandidate[] = []
   const unknown: WordCandidate[] = []
 
@@ -486,10 +507,4 @@ export function candidateWords(
   return [...known, ...unknown.slice(0, UNKNOWN_CANDIDATE_LIMIT)].slice(0, CANDIDATE_LIMIT)
 }
 
-export {
-  MAX_KNOWN_RANK,
-  MIN_KNOWN_RANK,
-  normalizeLang,
-  SINGLE_CHAR_MIN_CANDIDATE_RANK,
-  SINGLE_CHAR_PART_MAX_RANK,
-}
+export {MAX_KNOWN_RANK, MIN_KNOWN_RANK, normalizeLang, SINGLE_CHAR_MIN_CANDIDATE_RANK, SINGLE_CHAR_PART_MAX_RANK}

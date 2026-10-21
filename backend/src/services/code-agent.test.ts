@@ -35,7 +35,11 @@ describe("code agent gate", () => {
 
 describe("agent prompt", () => {
   test("carries the request and the guardrails the push depends on", () => {
-    const prompt = buildAgentPrompt({note: "gloss my English into Chinese too", instruction: "Route en utterances as en→zh", feedbackId: "abc-1"})
+    const prompt = buildAgentPrompt({
+      note: "gloss my English into Chinese too",
+      instruction: "Route en utterances as en→zh",
+      feedbackId: "abc-1",
+    })
     expect(prompt).toContain("gloss my English into Chinese too")
     expect(prompt).toContain("Route en utterances as en→zh")
     expect(prompt).toContain("bun run typecheck")
@@ -81,7 +85,9 @@ describe("feedback log change tracking", () => {
       },
       Date.now(),
     )
-    expect(log.setChange(entry.id, {status: "finished", agentId: "bc-9", detail: "pushed", at: 1, finishedAt: 2})).toBe(true)
+    expect(log.setChange(entry.id, {status: "finished", agentId: "bc-9", detail: "pushed", at: 1, finishedAt: 2})).toBe(
+      true,
+    )
     expect(log.list({})[0].analysis.change?.status).toBe("finished")
     expect(log.setChange("missing", {status: "failed", at: 1})).toBe(false)
   })

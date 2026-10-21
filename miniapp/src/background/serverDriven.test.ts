@@ -79,7 +79,13 @@ describe("config validation", () => {
   })
 
   test("screens with unsafe ids are dropped, the rest kept", () => {
-    const config = validConfig({...DEFAULT_CONFIG, screens: [{id: "reports", title: "Reports"}, {id: "../etc", title: "x"}]})
+    const config = validConfig({
+      ...DEFAULT_CONFIG,
+      screens: [
+        {id: "reports", title: "Reports"},
+        {id: "../etc", title: "x"},
+      ],
+    })
     expect(config?.screens.map((s) => s.id)).toEqual(["reports"])
   })
 })

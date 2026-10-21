@@ -155,9 +155,12 @@ interface OpenRouterResponseBody {
 function jsonSchema(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(jsonSchema)
   if (value && typeof value === "object") {
-    const mapped = Object.fromEntries(Object.entries(value).map(([key, item]) => [
-      key, key === "type" && typeof item === "string" ? item.toLowerCase() : jsonSchema(item),
-    ]))
+    const mapped = Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        key === "type" && typeof item === "string" ? item.toLowerCase() : jsonSchema(item),
+      ]),
+    )
     if (typeof mapped.type === "string" && mapped.type === "object") mapped.additionalProperties = false
     return mapped
   }
@@ -187,23 +190,26 @@ export async function generateJson(opts: GeminiCallOptions): Promise<GeminiCallR
   lastLlmCallAt = started
   let response: Response
   try {
-    response = await fetch(
-      `${openRouterBaseUrl()}/chat/completions`,
-      {
-        method: "POST",
-        headers: {Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "X-Title": "Mentra LinkLingo"},
-        body: JSON.stringify({
-          model,
-          messages: [{role: "system", content: opts.system}, {role: "user", content: opts.user}],
-          max_tokens: opts.maxOutputTokens,
-          response_format: {type: "json_schema", json_schema: {name: "linklingo_response", schema: jsonSchema(opts.responseSchema)}},
-          reasoning: {effort: !opts.thinkingLevel || opts.thinkingLevel === "minimal" ? "minimal" : opts.thinkingLevel},
-          // Absent `only`, OpenRouter routes by price, not speed.
-          ...(opts.provider ? {provider: {only: [opts.provider], allow_fallbacks: false}} : {}),
-        }),
-        signal: AbortSignal.timeout(60_000),
-      },
-    )
+    response = await fetch(`${openRouterBaseUrl()}/chat/completions`, {
+      method: "POST",
+      headers: {"Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json", "X-Title": "Mentra LinkLingo"},
+      body: JSON.stringify({
+        model,
+        messages: [
+          {role: "system", content: opts.system},
+          {role: "user", content: opts.user},
+        ],
+        max_tokens: opts.maxOutputTokens,
+        response_format: {
+          type: "json_schema",
+          json_schema: {name: "linklingo_response", schema: jsonSchema(opts.responseSchema)},
+        },
+        reasoning: {effort: !opts.thinkingLevel || opts.thinkingLevel === "minimal" ? "minimal" : opts.thinkingLevel},
+        // Absent `only`, OpenRouter routes by price, not speed.
+        ...(opts.provider ? {provider: {only: [opts.provider], allow_fallbacks: false}} : {}),
+      }),
+      signal: AbortSignal.timeout(60_000),
+    })
   } catch (error) {
     const llmMs = Date.now() - started
     metrics.increment("llm_calls_total", {op: opts.operation, outcome: "transport_error"})
@@ -240,8 +246,12 @@ export async function generateJson(opts: GeminiCallOptions): Promise<GeminiCallR
   }
   const text = candidate.message.content
   // Keep legacy response fields for installed miniapp clients.
-  const finishReason = candidate.finish_reason === "length" ? "MAX_TOKENS"
-    : candidate.finish_reason === "stop" ? "STOP" : candidate.finish_reason
+  const finishReason =
+    candidate.finish_reason === "length"
+      ? "MAX_TOKENS"
+      : candidate.finish_reason === "stop"
+        ? "STOP"
+        : candidate.finish_reason
   const usage: GeminiUsage = {
     promptTokens: data.usage?.prompt_tokens,
     outputTokens: data.usage?.completion_tokens,
