@@ -19,7 +19,6 @@ import {$} from "bun"
 const repoRoot = resolve(import.meta.dir, "..")
 const miniappDir = join(repoRoot, "miniapp")
 const DEFAULT_CORE = "https://core.dev.us-west-2.mentraglass.com"
-const BACKEND_URL = process.env.MENTRA_PUBLIC_LINKLINGO_BACKEND_URL || "https://linklingo-miniapp-dev.mentraglass.com"
 
 type Manifest = {
   packageName: string
@@ -119,10 +118,7 @@ async function pack(): Promise<string> {
   const manifest = (await Bun.file(join(miniappDir, "miniapp.json")).json()) as Manifest
   const zipPath = join(miniappDir, "build", `${manifest.packageName}-${manifest.version}.zip`)
   if (!process.argv.includes("--no-pack")) {
-    await $`${process.execPath} run pack`.cwd(repoRoot).env({
-      ...process.env,
-      MENTRA_PUBLIC_LINKLINGO_BACKEND_URL: BACKEND_URL,
-    })
+    await $`${process.execPath} run pack`.cwd(repoRoot)
   }
   if (!existsSync(zipPath)) {
     throw new Error(`Release zip missing: ${zipPath}`)

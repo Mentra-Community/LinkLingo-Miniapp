@@ -18,10 +18,11 @@ RUN bun install --frozen-lockfile
 # `MENTRA_PUBLIC_*` values are inlined by miniapp/build.ts, so the backend
 # origin is fixed at build time — the phone runs this bundle from its own disk
 # and cannot discover the origin later. Porter passes the app's environment
-# variables as build args for every ARG declared here; the default keeps a bare
-# `docker build` pointed at dev. /healthz echoes the baked value.
+# variables as build args for every ARG declared here; there is no default, so a
+# bare `docker build` fails in build.ts unless --build-arg sets it. /healthz echoes
+# the baked value.
 FROM install AS miniapp
-ARG MENTRA_PUBLIC_LINKLINGO_BACKEND_URL=https://linklingo-miniapp-dev.mentraglass.com
+ARG MENTRA_PUBLIC_LINKLINGO_BACKEND_URL
 ENV MENTRA_PUBLIC_LINKLINGO_BACKEND_URL=${MENTRA_PUBLIC_LINKLINGO_BACKEND_URL}
 
 # `zip` is not in the base image, and the builder may run as the non-root
@@ -46,7 +47,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=80
 
-ARG MENTRA_PUBLIC_LINKLINGO_BACKEND_URL=https://linklingo-miniapp-dev.mentraglass.com
+ARG MENTRA_PUBLIC_LINKLINGO_BACKEND_URL
 ENV MINIAPP_BUNDLE_BACKEND_URL=${MENTRA_PUBLIC_LINKLINGO_BACKEND_URL}
 
 COPY --from=install /app/node_modules ./node_modules

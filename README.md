@@ -53,6 +53,18 @@ bun run dev:local      # backend :3240 + miniapp QR
 ```
 
 Scan the QR with the Mentra App. Settings persist in `session.storage`.
+`dev:local` points the bundle at `DEV_BACKEND_URL` (default
+`http://localhost:3240`); `bun run dev` uses the hosted dev backend from `.env`.
+
+## Pack the client bundle
+
+The build inlines `MENTRA_PUBLIC_*` values from its environment only, never from
+a `.env` file, and fails if `MENTRA_PUBLIC_LINKLINGO_BACKEND_URL` is unset.
+
+```bash
+cp .env.example .env && bun --env-file=.env run pack   # dev backend
+bun run pack:prod                                      # prod backend, from Doppler linklingo/prd
+```
 
 ```bash
 bun run typecheck

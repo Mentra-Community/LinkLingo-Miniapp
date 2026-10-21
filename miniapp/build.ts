@@ -7,6 +7,13 @@ import {copyFile, rm} from "fs/promises"
 
 const distDir = "./dist"
 
+if (!process.env.MENTRA_PUBLIC_LINKLINGO_BACKEND_URL?.trim()) {
+  console.error(
+    "MENTRA_PUBLIC_LINKLINGO_BACKEND_URL is not set: run `bun --env-file=.env run pack` (dev values, after `cp .env.example .env`) or `bun run pack:prod`.",
+  )
+  process.exit(1)
+}
+
 await rm(distDir, {recursive: true, force: true})
 
 const PUBLIC_VARS = ["MENTRA_PUBLIC_LINKLINGO_BACKEND_URL", "MENTRA_PUBLIC_LINKLINGO_LOG_LEVEL"] as const
