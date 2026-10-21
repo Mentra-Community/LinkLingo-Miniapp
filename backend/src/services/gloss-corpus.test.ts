@@ -34,9 +34,7 @@ describe("gloss corpus fixture", () => {
     for (const sample of corpus.samples) {
       for (const tier of tiers) {
         const knownRank = knownRankFor(corpus.anchors[tier])
-        const candidates = new Set(
-          candidateWords(sample.text, sample.inputLanguage, [], knownRank).map((c) => c.word),
-        )
+        const candidates = new Set(candidateWords(sample.text, sample.inputLanguage, [], knownRank).map((c) => c.word))
         for (const word of sample.expect[tier]) {
           expect(
             candidates.has(word) || candidates.has(word.toLowerCase()),
@@ -54,9 +52,7 @@ describe("gloss corpus fixture", () => {
         for (const word of sample.expect[tier]) {
           const rank = lookupRank(word, sample.inputLanguage)
           if (rank == null) continue
-          expect(rank, `${tier}: "${word}" ranks inside the known vocabulary`).toBeGreaterThan(
-            knownRank,
-          )
+          expect(rank, `${tier}: "${word}" ranks inside the known vocabulary`).toBeGreaterThan(knownRank)
         }
       }
     }
@@ -72,12 +68,7 @@ describe("gloss corpus fixture", () => {
     const banned = new Set(corpus.neverGloss.map((w) => w.toLowerCase()))
     for (const sample of corpus.samples) {
       for (const tier of tiers) {
-        const words = candidateWords(
-          sample.text,
-          sample.inputLanguage,
-          [],
-          knownRankFor(corpus.anchors[tier]),
-        )
+        const words = candidateWords(sample.text, sample.inputLanguage, [], knownRankFor(corpus.anchors[tier]))
         for (const candidate of words) {
           expect(
             banned.has(candidate.word.toLowerCase()),

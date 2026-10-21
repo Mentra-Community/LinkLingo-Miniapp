@@ -52,7 +52,12 @@ export function buildReportView(report: Report, opts: {repeatThreshold?: number}
       })),
     })
   }
-  if (empty) summary.push({type: "text", tone: "hint", text: "Nothing recorded for this period. Wear the glasses and it fills in."})
+  if (empty)
+    summary.push({
+      type: "text",
+      tone: "hint",
+      text: "Nothing recorded for this period. Wear the glasses and it fills in.",
+    })
 
   const blocks: ViewBlock[] = [{type: "section", blocks: summary}]
 
@@ -63,7 +68,9 @@ export function buildReportView(report: Report, opts: {repeatThreshold?: number}
       meta: `${totals.uniqueWords} different`,
       blocks: [
         {type: "words", title: "Most seen", items: words(report.topWords, true)},
-        ...(report.newWords.length > 0 ? [{type: "words" as const, title: "New this period", items: words(report.newWords, false)}] : []),
+        ...(report.newWords.length > 0
+          ? [{type: "words" as const, title: "New this period", items: words(report.newWords, false)}]
+          : []),
       ],
     })
   }

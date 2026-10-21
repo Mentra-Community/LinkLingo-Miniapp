@@ -40,9 +40,10 @@ interface Corpus {
  */
 function tierFor(proficiency: number, anchors: Record<Tier, number>): Tier {
   const tiers = Object.entries(anchors) as Array<[Tier, number]>
-  return tiers.reduce((best, [tier, at]) =>
-    Math.abs(at - proficiency) < Math.abs(anchors[best] - proficiency) ? tier : best,
-  tiers[0][0])
+  return tiers.reduce(
+    (best, [tier, at]) => (Math.abs(at - proficiency) < Math.abs(anchors[best] - proficiency) ? tier : best),
+    tiers[0][0],
+  )
 }
 
 function arg(name: string, fallback: string): string {
@@ -50,7 +51,9 @@ function arg(name: string, fallback: string): string {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback
 }
 
-const levels = arg("levels", "10,50,90").split(",").map((n) => Number(n.trim()))
+const levels = arg("levels", "10,50,90")
+  .split(",")
+  .map((n) => Number(n.trim()))
 const repeat = Number(arg("repeat", "1"))
 const concurrency = Number(arg("concurrency", "3"))
 
@@ -59,9 +62,7 @@ if (!resolveApiKey()) {
   process.exit(1)
 }
 
-const corpus = JSON.parse(
-  readFileSync(join(import.meta.dir, "../test/fixtures/gloss-corpus.json"), "utf8"),
-) as Corpus
+const corpus = JSON.parse(readFileSync(join(import.meta.dir, "../test/fixtures/gloss-corpus.json"), "utf8")) as Corpus
 
 const neverGloss = new Set(corpus.neverGloss.map((w) => w.toLowerCase()))
 
@@ -192,7 +193,5 @@ corpus.samples.forEach((sample, i) => {
   }
 })
 
-console.log(
-  `\ndone in ${Math.round((Date.now() - started) / 1000)}s, ${rows.length} calls, ${failures} failures`,
-)
+console.log(`\ndone in ${Math.round((Date.now() - started) / 1000)}s, ${rows.length} calls, ${failures} failures`)
 if (failures > 0) process.exit(1)

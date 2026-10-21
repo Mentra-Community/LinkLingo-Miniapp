@@ -6,10 +6,11 @@ import {noteAuthenticatedUser, requestObservability} from "./observability"
 
 // Stands in for token verification: the test names the caller in a header.
 mock.module("./auth", () => ({
-  mentraAuthMiddleware: () => async (c: {req: {header(name: string): string | undefined}}, next: () => Promise<void>) => {
-    noteAuthenticatedUser(c.req.header("x-test-user"))
-    await next()
-  },
+  mentraAuthMiddleware:
+    () => async (c: {req: {header(name: string): string | undefined}}, next: () => Promise<void>) => {
+      noteAuthenticatedUser(c.req.header("x-test-user"))
+      await next()
+    },
 }))
 
 const {reportsApi} = await import("./reports.api")
@@ -20,8 +21,7 @@ const app = new Hono()
 app.use("*", requestObservability)
 app.route("/api/reports", reportsApi)
 
-const get = (path: string, user?: string) =>
-  app.request(path, {headers: user ? {"x-test-user": user} : {}})
+const get = (path: string, user?: string) => app.request(path, {headers: user ? {"x-test-user": user} : {}})
 const report = async (path: string, user: string) => (await (await get(path, user)).json()) as Report
 
 beforeEach(() => {
@@ -32,8 +32,22 @@ beforeEach(() => {
 describe("reports api", () => {
   test("a caller only sees their own ledger, whatever the query says", async () => {
     const now = Date.now()
-    historyStore.record(digest("alice"), {kind: "gloss", at: now, word: "博物馆", translation: "museum", in: "zh", out: "en"})
-    historyStore.record(digest("bob"), {kind: "gloss", at: now, word: "参观", translation: "to visit", in: "zh", out: "en"})
+    historyStore.record(digest("alice"), {
+      kind: "gloss",
+      at: now,
+      word: "博物馆",
+      translation: "museum",
+      in: "zh",
+      out: "en",
+    })
+    historyStore.record(digest("bob"), {
+      kind: "gloss",
+      at: now,
+      word: "参观",
+      translation: "to visit",
+      in: "zh",
+      out: "en",
+    })
 
     const alice = await report(`/api/reports?range=day&tzOffsetMin=0&user=${digest("bob")}`, "alice")
     expect(alice.topWords.map((w) => w.word)).toEqual(["博物馆"])

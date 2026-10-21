@@ -61,7 +61,13 @@ const CANDIDATES: Candidate[] = [
   {id: "baseline-flash-lite", model: "google/gemini-3.5-flash-lite", reasoning: "minimal"},
   {id: "cerebras-oss120b", model: "openai/gpt-oss-120b", provider: "cerebras", reasoning: "low"},
   {id: "cerebras-oss120b-t512", model: "openai/gpt-oss-120b", provider: "cerebras", reasoning: "low", maxTokens: 512},
-  {id: "cerebras-oss120b-min", model: "openai/gpt-oss-120b", provider: "cerebras", reasoning: "minimal", maxTokens: 512},
+  {
+    id: "cerebras-oss120b-min",
+    model: "openai/gpt-oss-120b",
+    provider: "cerebras",
+    reasoning: "minimal",
+    maxTokens: 512,
+  },
   {id: "groq-oss120b-min", model: "openai/gpt-oss-120b", provider: "groq", reasoning: "minimal", maxTokens: 512},
   {id: "cerebras-oss120b-t1024", model: "openai/gpt-oss-120b", provider: "cerebras", reasoning: "low", maxTokens: 1024},
   {id: "groq-oss120b-t512", model: "openai/gpt-oss-120b", provider: "groq", reasoning: "low", maxTokens: 512},
@@ -105,13 +111,16 @@ function arg(name: string, fallback: string): string {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback
 }
 
-const levels = arg("levels", "10,50,90").split(",").map((n) => Number(n.trim()))
+const levels = arg("levels", "10,50,90")
+  .split(",")
+  .map((n) => Number(n.trim()))
 const repeat = Number(arg("repeat", "1"))
-const only = arg("only", "").split(",").map((s) => s.trim()).filter(Boolean)
+const only = arg("only", "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean)
 
-const corpus = JSON.parse(
-  readFileSync(join(import.meta.dir, "../test/fixtures/gloss-corpus.json"), "utf8"),
-) as Corpus
+const corpus = JSON.parse(readFileSync(join(import.meta.dir, "../test/fixtures/gloss-corpus.json"), "utf8")) as Corpus
 const neverGloss = new Set(corpus.neverGloss.map((w) => w.toLowerCase()))
 
 function tierFor(proficiency: number, anchors: Record<Tier, number>): Tier {
@@ -150,9 +159,7 @@ function withAdditionalProperties(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withAdditionalProperties)
   if (!value || typeof value !== "object") return value
   const node = value as Record<string, unknown>
-  const mapped = Object.fromEntries(
-    Object.entries(node).map(([key, item]) => [key, withAdditionalProperties(item)]),
-  )
+  const mapped = Object.fromEntries(Object.entries(node).map(([key, item]) => [key, withAdditionalProperties(item)]))
   if (node.type === "object") mapped.additionalProperties = false
   return mapped
 }
@@ -169,10 +176,16 @@ async function callModel(candidate: Candidate, system: string, user: string): Pr
   const apiKey = candidate.apiKeyEnv ? process.env[candidate.apiKeyEnv] : process.env.OPENROUTER_API_KEY
   if (!apiKey) return {ms: 0, error: `missing ${candidate.apiKeyEnv ?? "OPENROUTER_API_KEY"}`}
 
-  const base = (candidate.baseUrl ?? process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1").replace(/\/+$/, "")
+  const base = (candidate.baseUrl ?? process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1").replace(
+    /\/+$/,
+    "",
+  )
   const body: Record<string, unknown> = {
     model: candidate.model,
-    messages: [{role: "system", content: system}, {role: "user", content: user}],
+    messages: [
+      {role: "system", content: system},
+      {role: "user", content: user},
+    ],
     max_tokens: candidate.maxTokens ?? 192,
     response_format: {
       type: "json_schema",
@@ -191,7 +204,7 @@ async function callModel(candidate: Candidate, system: string, user: string): Pr
     const response = await fetch(`${base}/chat/completions`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         "X-Title": "Mentra LinkLingo bench",
       },
@@ -292,7 +305,10 @@ async function benchCandidate(candidate: Candidate): Promise<Row[] | null> {
           if (!word || !translation) continue
           if (word.toLowerCase() === translation.toLowerCase()) continue
           if (looksUntranslated(translation, sample.inputLanguage, sample.outputLanguage)) continue
-          const bare = word.toLowerCase().replace(/\s*\([^)]*\)/g, "").trim()
+          const bare = word
+            .toLowerCase()
+            .replace(/\s*\([^)]*\)/g, "")
+            .trim()
           if (!candidateSet.has(bare) && !candidateSet.has(word.toLowerCase())) continue
           const rank = lookupRank(bare, sample.inputLanguage)
           if (rank != null && rank <= knownRank) continue

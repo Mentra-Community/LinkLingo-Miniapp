@@ -74,7 +74,11 @@ function Block({block, ctx}: {block: ViewBlock; ctx: BlockContext}) {
             <div key={i} className="bar-col">
               <div className="bar-track">
                 {item.segments.map((segment, j) => (
-                  <div key={j} className={`bar tone-${segment.tone ?? "accent"}`} style={{height: `${(segment.value / peak) * 100}%`}} />
+                  <div
+                    key={j}
+                    className={`bar tone-${segment.tone ?? "accent"}`}
+                    style={{height: `${(segment.value / peak) * 100}%`}}
+                  />
                 ))}
               </div>
               <span>{item.label}</span>
@@ -87,11 +91,15 @@ function Block({block, ctx}: {block: ViewBlock; ctx: BlockContext}) {
       return (
         <Group title={block.title} hint={block.hint} vars={ctx.vars}>
           {block.items.length === 0 ? (
-            block.empty ? <p className="hint">{fill(block.empty, ctx.vars)}</p> : null
+            block.empty ? (
+              <p className="hint">{fill(block.empty, ctx.vars)}</p>
+            ) : null
           ) : (
             <div className="words">
               {block.items.map((item, i) => (
-                <div key={i} className={`word-chip${item.tone === "info" ? " reverse" : item.tone === "accent" ? " upgrade" : ""}`}>
+                <div
+                  key={i}
+                  className={`word-chip${item.tone === "info" ? " reverse" : item.tone === "accent" ? " upgrade" : ""}`}>
                   <b>
                     {item.word}
                     {item.badge ? <em className="count">{item.badge}</em> : null}
@@ -107,7 +115,9 @@ function Block({block, ctx}: {block: ViewBlock; ctx: BlockContext}) {
       return (
         <Group title={block.title} hint={block.hint} vars={ctx.vars}>
           {block.items.length === 0 ? (
-            block.empty ? <p className="hint">{fill(block.empty, ctx.vars)}</p> : null
+            block.empty ? (
+              <p className="hint">{fill(block.empty, ctx.vars)}</p>
+            ) : null
           ) : (
             <ul className="report-list">
               {block.items.map((item, i) => (
@@ -129,14 +139,28 @@ function Block({block, ctx}: {block: ViewBlock; ctx: BlockContext}) {
         </Group>
       )
     case "text":
-      return <p className={block.tone === "error" ? "diag-error" : block.tone === "body" ? "body-text" : "hint"}>{fill(block.text, ctx.vars)}</p>
+      return (
+        <p className={block.tone === "error" ? "diag-error" : block.tone === "body" ? "body-text" : "hint"}>
+          {fill(block.text, ctx.vars)}
+        </p>
+      )
     default:
       if (SETTING_TYPES.has((block as SettingBlock).type)) return <SettingRow block={block as SettingBlock} ctx={ctx} />
       return null
   }
 }
 
-function Group({title, hint, vars, children}: {title?: string; hint?: string; vars: Record<string, string>; children: React.ReactNode}) {
+function Group({
+  title,
+  hint,
+  vars,
+  children,
+}: {
+  title?: string
+  hint?: string
+  vars: Record<string, string>
+  children: React.ReactNode
+}) {
   return (
     <div className="report-group">
       {title ? <h3>{fill(title, vars)}</h3> : null}

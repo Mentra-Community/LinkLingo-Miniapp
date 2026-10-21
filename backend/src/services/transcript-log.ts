@@ -84,7 +84,9 @@ export class TranscriptLog {
     const text = (input.text ?? "").trim()
     const wouldGloss =
       text && input.disposition !== "skipped_language" && input.disposition !== "translation_mode"
-        ? candidateWords(text, input.inputLanguage, [], knownRank, input.outputLanguage).map((c) => `${c.word}:${c.rank}`)
+        ? candidateWords(text, input.inputLanguage, [], knownRank, input.outputLanguage).map(
+            (c) => `${c.word}:${c.rank}`,
+          )
         : []
 
     const entry: TranscriptEntry = {

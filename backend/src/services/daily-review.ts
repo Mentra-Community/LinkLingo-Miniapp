@@ -93,7 +93,9 @@ const defaultDeps: DailyReviewDeps = {
 }
 
 function clip(value: unknown, max: number): string {
-  const text = String(value ?? "").replace(/\s+/g, " ").trim()
+  const text = String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
   return [...text].slice(0, max).join("")
 }
 

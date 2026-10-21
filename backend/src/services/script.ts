@@ -59,7 +59,10 @@ const ANNOTATION = /\([^)]*\)/g
 
 /** Script a language is written in; accepts codes, names and "Chinese (Pinyin)". */
 export function scriptOfLanguage(language: string): Script {
-  const key = language.toLowerCase().replace(/\(.*?\)/g, "").trim()
+  const key = language
+    .toLowerCase()
+    .replace(/\(.*?\)/g, "")
+    .trim()
   const bare = key.split(/[-_]/)[0] ?? key
   return LANGUAGE_SCRIPTS[key] ?? LANGUAGE_SCRIPTS[bare] ?? "unknown"
 }

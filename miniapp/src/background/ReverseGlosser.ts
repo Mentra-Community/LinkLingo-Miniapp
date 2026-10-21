@@ -133,5 +133,8 @@ export function fallbackWords(text: string, settings: LinkLingoSettings, recent:
 }
 
 function bare(word: string): string {
-  return word.toLowerCase().replace(/\s*\([^)]*\)/g, "").trim()
+  return word
+    .toLowerCase()
+    .replace(/\s*\([^)]*\)/g, "")
+    .trim()
 }

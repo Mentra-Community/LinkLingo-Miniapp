@@ -113,18 +113,27 @@ export async function startCodeChange(
         (result) => {
           const ok = result.status === "finished"
           metrics.increment("code_agent_runs_total", {outcome: result.status})
-          log.info("code change finished", {feedbackId: input.feedbackId, agentId: owned.agentId, status: result.status})
+          log.info("code change finished", {
+            feedbackId: input.feedbackId,
+            agentId: owned.agentId,
+            status: result.status,
+          })
           onDone({
             ...started,
             status: ok ? "finished" : "failed",
-            detail: (ok ? result.result : result.error?.message ?? result.result)?.slice(0, 1200),
+            detail: (ok ? result.result : (result.error?.message ?? result.result))?.slice(0, 1200),
             finishedAt: Date.now(),
           })
         },
         (error) => {
           metrics.increment("code_agent_runs_total", {outcome: "wait_error"})
           log.warn("code change wait failed", {feedbackId: input.feedbackId, agentId: owned.agentId, error})
-          onDone({...started, status: "failed", detail: String((error as Error)?.message ?? error), finishedAt: Date.now()})
+          onDone({
+            ...started,
+            status: "failed",
+            detail: String((error as Error)?.message ?? error),
+            finishedAt: Date.now(),
+          })
         },
       )
       .finally(async () => {
@@ -147,6 +156,7 @@ export function describeChange(gate: CodeAgentGate, change?: CodeChange): string
   if (gate === "disabled") return "Change requests are not connected to a coding agent yet, so nothing was built."
   if (gate === "not_allowed") return "This account cannot send changes to be built."
   if (gate === "busy") return "Another change is still being built. Send this one again when it finishes."
-  if (!change || change.status === "failed") return `The coding agent could not start: ${change?.detail ?? "unknown error"}.`
+  if (!change || change.status === "failed")
+    return `The coding agent could not start: ${change?.detail ?? "unknown error"}.`
   return "Sent to a coding agent. If it only changes the backend, you get it the next time you open LinkLingo, about 10 minutes after it pushes. If it has to change the app itself, it will say so and you will need to scan the new install QR."
 }

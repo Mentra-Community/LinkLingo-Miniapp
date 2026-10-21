@@ -217,7 +217,10 @@ export class GlossService {
       recentCount: recent.length,
       candidateCount: candidates.length,
       selectMs,
-      topCandidates: candidates.slice(0, 5).map((c) => `${c.word}:${c.rank}`).join(","),
+      topCandidates: candidates
+        .slice(0, 5)
+        .map((c) => `${c.word}:${c.rank}`)
+        .join(","),
     })
 
     if (!context || candidates.length === 0) {
@@ -305,7 +308,14 @@ export class GlossService {
       })
     }
 
-    const recentSet = new Set(recent.map((w) => w.toLowerCase().replace(/\s*\([^)]*\)/g, "").trim()))
+    const recentSet = new Set(
+      recent.map((w) =>
+        w
+          .toLowerCase()
+          .replace(/\s*\([^)]*\)/g, "")
+          .trim(),
+      ),
+    )
     const candidateSet = new Set(candidates.map((c) => c.word.toLowerCase()))
     const words: GlossedWord[] = []
     const rejected: Array<{word: string; reason: RejectReason}> = []
@@ -332,7 +342,10 @@ export class GlossService {
         reject("untranslated")
         continue
       }
-      const bare = word.toLowerCase().replace(/\s*\([^)]*\)/g, "").trim()
+      const bare = word
+        .toLowerCase()
+        .replace(/\s*\([^)]*\)/g, "")
+        .trim()
       if (recentSet.has(bare)) {
         reject("recent")
         continue

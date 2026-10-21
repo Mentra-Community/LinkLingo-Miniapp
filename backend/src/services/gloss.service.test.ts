@@ -225,7 +225,10 @@ describe("glossService", () => {
 
     test("client overrides cannot leave the tuned range", () => {
       expect(resolveGlossLimits({fluencyLevel: 33, knownRank: 5, maxWords: 9})).toEqual({knownRank: 100, maxWords: 3})
-      expect(resolveGlossLimits({fluencyLevel: 33, knownRank: 1e9, maxWords: 0})).toEqual({knownRank: 60_000, maxWords: 1})
+      expect(resolveGlossLimits({fluencyLevel: 33, knownRank: 1e9, maxWords: 0})).toEqual({
+        knownRank: 60_000,
+        maxWords: 1,
+      })
       expect(resolveGlossLimits({fluencyLevel: 10})).toEqual({knownRank: knownRankFor(10), maxWords: 3})
     })
   })

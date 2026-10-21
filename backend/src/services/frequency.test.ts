@@ -1,12 +1,6 @@
 import {describe, expect, test} from "bun:test"
 
-import {
-  candidateWords,
-  knownRankFor,
-  lookupRank,
-  MAX_KNOWN_RANK,
-  MIN_KNOWN_RANK,
-} from "./frequency"
+import {candidateWords, knownRankFor, lookupRank, MAX_KNOWN_RANK, MIN_KNOWN_RANK} from "./frequency"
 
 const LADDER = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
 
@@ -73,9 +67,7 @@ describe("candidateWords rank cut", () => {
     // glossing 你好 for an advanced learner. This locks that out permanently.
     for (const {text, lang} of CORPUS) {
       for (let i = 0; i < LADDER.length; i++) {
-        const lower = new Set(
-          candidateWords(text, lang, [], knownRankFor(LADDER[i])).map((c) => c.word),
-        )
+        const lower = new Set(candidateWords(text, lang, [], knownRankFor(LADDER[i])).map((c) => c.word))
         for (let j = i + 1; j < LADDER.length; j++) {
           const higher = candidateWords(text, lang, [], knownRankFor(LADDER[j]))
           for (const candidate of higher) {
@@ -112,12 +104,7 @@ describe("candidateWords rank cut", () => {
   })
 
   test("excludes recent items", () => {
-    const candidates = candidateWords(
-      "photosynthesis chlorophyll",
-      "en",
-      ["photosynthesis"],
-      knownRankFor(50),
-    )
+    const candidates = candidateWords("photosynthesis chlorophyll", "en", ["photosynthesis"], knownRankFor(50))
     expect(candidates.some((c) => c.word === "photosynthesis")).toBe(false)
   })
 

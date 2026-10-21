@@ -2,13 +2,7 @@ import {describe, expect, test} from "bun:test"
 
 import {ShadowInterimDetector} from "./shadowInterim"
 
-function feed(
-  detector: ShadowInterimDetector,
-  text: string,
-  isFinal: boolean,
-  now: number,
-  lastGlossContext = "",
-) {
+function feed(detector: ShadowInterimDetector, text: string, isFinal: boolean, now: number, lastGlossContext = "") {
   detector.observe({utteranceId: "u1", text, isFinal, lastGlossContext, now})
 }
 

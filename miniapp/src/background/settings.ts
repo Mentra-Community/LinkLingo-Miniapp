@@ -78,7 +78,11 @@ export function cleanPrefs(prefs: unknown): Record<string, SettingValue> {
   const out: Record<string, SettingValue> = {}
   for (const [key, value] of Object.entries(prefs)) {
     if (!/^[A-Za-z][A-Za-z0-9_]{0,40}$/.test(key)) continue
-    if (typeof value === "boolean" || typeof value === "string" || (typeof value === "number" && Number.isFinite(value))) {
+    if (
+      typeof value === "boolean" ||
+      typeof value === "string" ||
+      (typeof value === "number" && Number.isFinite(value))
+    ) {
       out[key] = value
     }
   }

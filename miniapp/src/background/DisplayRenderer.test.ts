@@ -1,6 +1,12 @@
 import {describe, expect, test} from "bun:test"
 
-import {DEFAULT_SETTINGS, HUD_CAPTION_LINES, HUD_WORD_ROWS, type GlossedWord, type LinkLingoSettings} from "../shared/types"
+import {
+  DEFAULT_SETTINGS,
+  HUD_CAPTION_LINES,
+  HUD_WORD_ROWS,
+  type GlossedWord,
+  type LinkLingoSettings,
+} from "../shared/types"
 import {composeHud, EMPTY_ROW, IDLE_LINE} from "./DisplayRenderer"
 
 const word = (w: string, t: string, isUpgrade = false): GlossedWord => ({word: w, translation: t, at: 0, isUpgrade})
@@ -116,7 +122,10 @@ describe("composeHud words-only", () => {
 
 describe("composeHud translation", () => {
   test("shows translation over original", () => {
-    const frame = composeHud({words: [], caption: "", translation: "museum", original: "博物馆"}, settings("translation"))
+    const frame = composeHud(
+      {words: [], caption: "", translation: "museum", original: "博物馆"},
+      settings("translation"),
+    )
     expect(rows(frame)).toEqual(["museum", "博物馆"])
   })
 })
