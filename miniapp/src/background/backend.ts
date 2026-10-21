@@ -14,7 +14,7 @@ import {createLogger, diagnostics} from "./observability"
 
 const log = createLogger("api")
 
-const BACKEND_URL = process.env.MENTRA_PUBLIC_LINKLINGO_BACKEND_URL || "http://localhost:3240"
+const BACKEND_URL = process.env.MENTRA_PUBLIC_LINKLINGO_BACKEND_URL ?? ""
 
 log.info("backend target configured", {url: BACKEND_URL})
 
