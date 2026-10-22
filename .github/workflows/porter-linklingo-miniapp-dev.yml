@@ -64,3 +64,9 @@ jobs:
           PORTER_PROJECT: "15081"
           PORTER_TAG: ${{ steps.vars.outputs.sha_short }}
           PORTER_TOKEN: ${{ secrets.PORTER_DEPLOY_TOKEN }}
+
+  # Phones update the miniapp from Mentra's miniapp hosts once the backend it calls is live.
+  publish-miniapp:
+    needs: porter-deploy
+    uses: ./.github/workflows/miniapp-publish.yml
+    secrets: inherit
