@@ -133,6 +133,21 @@ function withTimeout<T>(operation: string, promise: Promise<T>): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
 
+const STORAGE_ATTEMPTS = 3
+
+/** R2 sometimes answers with a transient error; every call here is safe to repeat. */
+async function withRetries<T>(operation: string, call: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await withTimeout(operation, call())
+    } catch (error) {
+      if (attempt >= STORAGE_ATTEMPTS) throw error
+      console.warn(`${operation} failed (attempt ${attempt} of ${STORAGE_ATTEMPTS}): ${String(error)}`)
+      await Bun.sleep(2_000 * attempt)
+    }
+  }
+}
+
 export function r2Store(env: Record<string, string | undefined>): ObjectStore {
   const required = [
     "MINIAPPS_R2_ENDPOINT",
@@ -149,10 +164,10 @@ export function r2Store(env: Record<string, string | undefined>): ObjectStore {
     bucket: env.MINIAPPS_R2_BUCKET,
   })
   return {
-    exists: (key) => withTimeout(`Checking ${key}`, client.file(key).exists()),
-    read: async (key) => new Uint8Array(await withTimeout(`Reading ${key}`, client.file(key).arrayBuffer())),
+    exists: (key) => withRetries(`Checking ${key}`, () => client.file(key).exists()),
+    read: async (key) => new Uint8Array(await withRetries(`Reading ${key}`, () => client.file(key).arrayBuffer())),
     write: async (key, data, contentType) => {
-      await withTimeout(`Writing ${key}`, client.write(key, data, {type: contentType}))
+      await withRetries(`Writing ${key}`, () => client.write(key, data, {type: contentType}))
     },
   }
 }
