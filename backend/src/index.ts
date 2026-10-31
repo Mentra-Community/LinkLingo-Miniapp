@@ -6,6 +6,7 @@ import {apiKeyFingerprint, allowMockLlm, resolveApiKeySource, resolveModel} from
 import {startDailyReviews, stopDailyReviews} from "./services/daily-review"
 import {startLlmKeepalive, stopLlmKeepalive} from "./services/llm-keepalive"
 import {refreshTape, startTapeStore, stopTapeStore} from "./services/tape-s3"
+import {startLearning, stopLearning} from "./services/learning-runtime"
 import {allowUnauth} from "./api/auth"
 
 const log = createLogger("server")
@@ -53,6 +54,7 @@ export async function startBackend(opts: StartBackendOptions = {}): Promise<Back
   void startTapeStore()
   startLlmKeepalive()
   startDailyReviews()
+  startLearning()
   // The previous pod can still be flushing while this one boots. A second
   // load picks up those rows without waiting for the next eviction.
   const refresh = setInterval(() => void refreshTape(), 60_000)
@@ -66,6 +68,7 @@ export async function startBackend(opts: StartBackendOptions = {}): Promise<Back
       clearInterval(refresh)
       stopLlmKeepalive()
       stopDailyReviews()
+      stopLearning()
       await stopTapeStore()
       server.stop()
     },

@@ -1,7 +1,7 @@
 import {describe, expect, test} from "bun:test"
 
 import {DEFAULT_SETTINGS, SETTINGS_SCHEMA_VERSION} from "../shared/types"
-import {migrateSettings, normalizeSettings} from "./settings"
+import {loadSettings, migrateSettings, normalizeSettings, saveSettings} from "./settings"
 
 describe("settings defaults", () => {
   test("factory pair is Chinese heard, English gloss", () => {
@@ -67,5 +67,43 @@ describe("migrateSettings", () => {
     })
     expect(next.displayLines).toBe(3)
     expect(next.schemaVersion).toBe(SETTINGS_SCHEMA_VERSION)
+  })
+})
+
+describe("learningCapture setting", () => {
+  const fakeSession = () => {
+    const store = new Map<string, string>()
+    return {
+      store,
+      session: {
+        storage: {
+          get: async (k: string) => store.get(k) ?? null,
+          set: async (k: string, v: string) => void store.set(k, v),
+        },
+      } as never,
+    }
+  }
+
+  test("defaults to off", () => {
+    expect(DEFAULT_SETTINGS.learningCapture).toBe(false)
+    expect(normalizeSettings({...DEFAULT_SETTINGS}).learningCapture).toBe(false)
+  })
+
+  test("normalizer keeps only a real boolean true", () => {
+    expect(normalizeSettings({...DEFAULT_SETTINGS, learningCapture: true}).learningCapture).toBe(true)
+    expect(normalizeSettings({...DEFAULT_SETTINGS, learningCapture: "yes" as never}).learningCapture).toBe(false)
+    expect(normalizeSettings({...DEFAULT_SETTINGS, learningCapture: undefined as never}).learningCapture).toBe(false)
+  })
+
+  test("settings stored before the key existed load as off", () => {
+    const next = migrateSettings({schemaVersion: 3, sourceLanguage: "zh", targetLanguage: "en"})
+    expect(next.learningCapture).toBe(false)
+  })
+
+  test("persists across a WebView/app restart", async () => {
+    const {session} = fakeSession()
+    await saveSettings(session, normalizeSettings({...DEFAULT_SETTINGS, learningCapture: true}))
+    const reloaded = await loadSettings(session)
+    expect(reloaded.learningCapture).toBe(true)
   })
 })

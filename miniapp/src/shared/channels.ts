@@ -42,6 +42,9 @@ export interface Channels {
   /** A server-driven tab asks for its blocks; `screen` must be one the config lists. */
   "link:view-request": {requestId: string; screen: string; query: Record<string, string>}
   "link:view-result": {requestId: string; ok: boolean; view?: View; error?: string}
+  /** The learner pasted a pairing code from the Mandarin app. The code never leaves the background except to the backend. */
+  "link:learning-pair": {requestId: string; code: string}
+  "link:learning-pair-result": {requestId: string; ok: boolean; message?: string}
 }
 
 declare global {

@@ -68,6 +68,8 @@ export function normalizeSettings(settings: LinkLingoSettings): LinkLingoSetting
     reverseKnownRank: Number.isFinite(settings.reverseKnownRank)
       ? clamp(Math.round(settings.reverseKnownRank), REVERSE_KNOWN_RANK_LIMITS[0], REVERSE_KNOWN_RANK_LIMITS[1])
       : DEFAULT_SETTINGS.reverseKnownRank,
+    // Consent is only ever an explicit `true`; anything else (missing, "yes", 1) is off.
+    learningCapture: settings.learningCapture === true,
     prefs: cleanPrefs(settings.prefs),
   }
 }

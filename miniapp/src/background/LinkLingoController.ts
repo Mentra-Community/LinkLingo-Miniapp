@@ -18,6 +18,9 @@ import {applyTunables} from "./tunables"
 import {DisplayRenderer} from "./DisplayRenderer"
 import {GlossEngine} from "./GlossEngine"
 import {toLocale} from "./locales"
+import {CLIENT_BUILD_ID, CLIENT_VERSION} from "./identity"
+import {LearningCapture, captureModeFor} from "./learningCapture"
+import {createLearningTransport, learningUrl, type LearningTransport} from "./learningTransport"
 import {createLogger, diagnostics, logLevel} from "./observability"
 import {cleanPrefs, loadSettings, normalizeSettings, saveSettings, settingPatch} from "./settings"
 import {TranscriptBuffer} from "./TranscriptBuffer"
@@ -33,6 +36,13 @@ const DIAGNOSTICS_INTERVAL_MS = 5000
  * the socket already open.
  */
 const KEEPALIVE_INTERVAL_MS = 25_000
+
+/** How often the learning loop checks in: phone-status heartbeat, and the status poll when it is due. */
+const LEARNING_TICK_MS = 60_000
+/** The backend's view of the pairing is refreshed this often while capture is on. */
+const LEARNING_STATUS_POLL_MS = 5 * 60_000
+/** Status changes are reported at most this often. */
+const PHONE_STATUS_MIN_GAP_MS = 10_000
 
 type Send = <C extends keyof Channels & string>(channel: C, payload: Channels[C]) => void
 
@@ -52,13 +62,40 @@ export class LinkLingoController {
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null
   private wordExpiryTimer: ReturnType<typeof setTimeout> | null = null
   private uiOpen = false
+  private readonly learning: LearningCapture
+  private readonly learningTransport: LearningTransport
+  private learningServerEnabled = true
+  private learningStatusAt = 0
+  private learningTimer: ReturnType<typeof setInterval> | null = null
+  private phoneStatusTimer: ReturnType<typeof setTimeout> | null = null
+  private phoneStatusKey = ""
+  private phoneStatusAt = 0
   private readonly buffer = new TranscriptBuffer()
   private readonly display: DisplayRenderer
   private readonly cache: TranslationCache
   private readonly engine: GlossEngine
   private readonly ui: {send: Send}
 
-  constructor(private readonly session: MiniappSession) {
+  constructor(
+    private readonly session: MiniappSession,
+    deps: {learning?: LearningCapture; learningTransport?: LearningTransport} = {},
+  ) {
+    this.learningTransport =
+      deps.learningTransport ??
+      createLearningTransport({authFetch: (path, init) => session.auth.fetch(learningUrl(path), init)})
+    this.learning =
+      deps.learning ??
+      new LearningCapture({
+        storage: {
+          get: (key) => session.storage.get(key),
+          set: (key, value) => session.storage.set(key, value),
+          delete: (key) => session.storage.delete(key),
+          keys: () => session.storage.keys(),
+        },
+        send: (events) => this.learningTransport.send(events),
+        clientVersion: CLIENT_VERSION,
+        clientBuildId: CLIENT_BUILD_ID,
+      })
     this.ui = {
       send: (channel, payload) => this.session.ui.send(channel, payload),
     }
@@ -108,6 +145,8 @@ export class LinkLingoController {
     void this.refreshConfig()
     // Read before the first utterance so an early repeat is already a hit.
     await this.cache.load()
+    // Restores the durable queue before the first utterance can arrive; never blocks captions on delivery.
+    await this.startLearning()
     log.info("settings loaded", {
       source: this.settings.sourceLanguage,
       target: this.settings.targetLanguage,
@@ -127,6 +166,7 @@ export class LinkLingoController {
       this.uiOpen = true
       diagnostics.increment("ui.opens")
       log.info("webview opened")
+      this.learningForeground()
       this.ui.send("link:snapshot", this.snapshot())
       this.pushDiagnostics()
     })
@@ -241,6 +281,7 @@ export class LinkLingoController {
     on("link:set-interim-trigger", ({interimTrigger}) => void this.patch({interimTrigger}))
     on("link:set-fast-cooldown", ({fastCooldown}) => void this.patch({fastCooldown}))
     on("link:feedback", ({requestId, note}) => void this.askAnalyst(requestId, note))
+    on("link:learning-pair", ({requestId, code}) => void this.pairLearning(requestId, code))
     on("link:clear", () => {
       log.info("hud cleared by user")
       diagnostics.increment("ui.clears")
@@ -311,6 +352,7 @@ export class LinkLingoController {
         .join(","),
     })
     this.display.applySettings(this.settings)
+    if (prev.learningCapture !== this.settings.learningCapture) this.onLearningToggled()
     const streamChanged =
       prev.mode !== this.settings.mode ||
       prev.sourceLanguage !== this.settings.sourceLanguage ||
@@ -335,7 +377,15 @@ export class LinkLingoController {
     this.ui.send("link:snapshot", this.snapshot())
   }
 
+  /** Wraps stream setup so each successful (re)subscription is one learning "listening run". */
   private subscribeStreams(): void {
+    this.learning.setListening(false)
+    this.openStreams()
+    this.learning.startSession()
+    this.learning.setListening(true)
+  }
+
+  private openStreams(): void {
     if (this.streamCleanup) {
       try {
         this.streamCleanup()
@@ -406,7 +456,10 @@ export class LinkLingoController {
     this.ui.send("link:caption", {text, isFinal: data.isFinal})
     const disposition = this.engine.consider(text, data.isFinal, this.settings, utterance.id)
     if (data.isFinal && text && disposition) {
-      this.recordTranscript(text, data.language, disposition, utterance.id, data.speakerId)
+      this.recordTranscript(text, data.language, disposition, utterance.id, data.text, data.speakerId)
+    } else if (data.isFinal && text) {
+      // The engine gave no disposition for a final; the utterance is still worth keeping.
+      this.captureLearning(text, data.language, "heard", utterance.id, data.text)
     }
   }
 
@@ -436,6 +489,7 @@ export class LinkLingoController {
         data.sourceLanguage,
         "translation_mode",
         utterance.id,
+        original ? (data.originalText ?? original) : data.text,
         data.speakerId,
       )
     }
@@ -478,8 +532,11 @@ export class LinkLingoController {
     detectedLanguage: string | undefined,
     disposition: TranscriptDisposition,
     utteranceId?: string,
+    rawText?: string,
     speakerId?: string,
   ): void {
+    // Durable capture comes first and is fully isolated: it must never throw into the caption path.
+    this.captureLearning(text, detectedLanguage, disposition, utteranceId, rawText)
     // Shadow results ride the transcript tape rather than the gloss tape:
     // they exist per utterance, including the many utterances that never
     // produce a gloss at all.
@@ -499,6 +556,176 @@ export class LinkLingoController {
       // the realised version of what shadow mode predicted.
       asrLeadMs: this.engine.takeAsrLeadMs(),
     })
+  }
+
+  /**
+   * Hands one final segment to the durable queue. Fire-and-forget: the caption
+   * path never waits on storage or delivery, and nothing thrown here escapes.
+   * A no-op unless the learningCapture setting is on; the queue itself also
+   * requires a paired backend connection.
+   */
+  private captureLearning(
+    text: string,
+    detectedLanguage: string | undefined,
+    disposition: TranscriptDisposition,
+    utteranceId?: string,
+    rawText?: string,
+  ): void {
+    try {
+      if (!this.settings.learningCapture) return
+      diagnostics.increment("learning.hook_calls")
+      void this.learning
+        .enqueue({
+          text: rawText ?? text,
+          language: detectedLanguage,
+          inputLanguage: inputLanguage(this.settings),
+          outputLanguage: outputLanguage(this.settings),
+          mode: captureModeFor(this.settings.mode, disposition),
+          disposition,
+          utteranceId,
+        })
+        .then(
+          (result) => diagnostics.increment(`learning.enqueue_${result.status}`),
+          () => diagnostics.increment("learning.hook_errors"),
+        )
+    } catch (err) {
+      diagnostics.increment("learning.hook_errors")
+      log.warn("learning capture hook failed", {error: err as Error})
+    }
+  }
+
+  private async startLearning(): Promise<void> {
+    try {
+      await this.learning.init()
+      this.applyLearningEnabled()
+      this.learning.onChange(() => this.schedulePhoneStatus())
+      try {
+        // A refreshed token is the usual fix for a 401 stop.
+        this.session.auth.onUpdate(() => void this.learning.retryNow())
+      } catch (err) {
+        log.debug("auth updates unavailable for learning retries", {error: err as Error})
+      }
+      void this.refreshLearningStatus()
+      if (!this.learningTimer) this.learningTimer = setInterval(() => this.learningTick(), LEARNING_TICK_MS)
+    } catch (err) {
+      diagnostics.increment("learning.start_failures")
+      log.error("learning capture failed to start; captions are unaffected", {error: err as Error})
+    }
+  }
+
+  /** Capture runs only while the learner has it on and the server has not switched the feature off. */
+  private applyLearningEnabled(): void {
+    this.learning.setEnabled(this.settings.learningCapture && this.learningServerEnabled)
+  }
+
+  private onLearningToggled(): void {
+    this.applyLearningEnabled()
+    if (this.settings.learningCapture) void this.refreshLearningStatus()
+    this.schedulePhoneStatus()
+  }
+
+  /** Sets the connected state from the backend. A failed poll keeps the last known state: an outage must not look like an unpair. */
+  private async refreshLearningStatus(): Promise<void> {
+    try {
+      const result = await this.learningTransport.fetchStatus()
+      this.learningStatusAt = Date.now()
+      if (!result.ok) {
+        diagnostics.increment("learning.status_failures")
+        return
+      }
+      this.learningServerEnabled = result.status.enabled
+      this.learning.setConnected(result.status.connected)
+      this.applyLearningEnabled()
+      if (result.status.connected) void this.learning.drain()
+      this.schedulePhoneStatus()
+    } catch (err) {
+      diagnostics.increment("learning.status_failures")
+      log.warn("learning status poll threw", {error: err as Error})
+    }
+  }
+
+  /** The learner pasted a pairing code from the Mandarin app. On success the connection state is re-read right away. */
+  private async pairLearning(requestId: string, code: string): Promise<void> {
+    try {
+      const outcome = await this.learningTransport.pair(code)
+      this.ui.send("link:learning-pair-result", {requestId, ok: outcome.ok, message: outcome.message})
+      if (outcome.ok) {
+        diagnostics.increment("learning.paired")
+        await this.refreshLearningStatus()
+      } else {
+        diagnostics.increment("learning.pair_failed")
+      }
+    } catch (err) {
+      diagnostics.increment("learning.pair_errors")
+      log.warn("learning pairing failed", {error: err as Error})
+      this.ui.send("link:learning-pair-result", {requestId, ok: false, message: "Pairing failed. Try again."})
+    }
+  }
+
+  private learningForeground(): void {
+    try {
+      const status = this.learning.status()
+      if (this.settings.learningCapture || status.pending > 0) {
+        void this.learning.retryNow().catch(() => diagnostics.increment("learning.foreground_drain_failures"))
+        if (Date.now() - this.learningStatusAt > LEARNING_TICK_MS) void this.refreshLearningStatus()
+      }
+    } catch (err) {
+      diagnostics.increment("learning.foreground_errors")
+      log.warn("learning foreground hook failed", {error: err as Error})
+    }
+  }
+
+  private learningTick(): void {
+    try {
+      const status = this.learning.status()
+      const active = this.settings.learningCapture || status.pending > 0
+      if (active && Date.now() - this.learningStatusAt >= LEARNING_STATUS_POLL_MS) void this.refreshLearningStatus()
+      if (active) void this.postPhoneStatus(true)
+    } catch (err) {
+      diagnostics.increment("learning.tick_errors")
+      log.warn("learning tick failed", {error: err as Error})
+    }
+  }
+
+  /** Reports a status change soon, but never more often than the throttle. */
+  private schedulePhoneStatus(): void {
+    if (this.phoneStatusTimer) return
+    const wait = Math.max(0, PHONE_STATUS_MIN_GAP_MS - (Date.now() - this.phoneStatusAt))
+    this.phoneStatusTimer = setTimeout(() => {
+      this.phoneStatusTimer = null
+      void this.postPhoneStatus(false)
+    }, wait)
+  }
+
+  /** Best-effort `POST /api/learning/phone-status`: on change, and as a 60s heartbeat while active. */
+  private async postPhoneStatus(heartbeat: boolean): Promise<void> {
+    const status = this.learning.status()
+    if (status.state === "not_connected") return
+    // Pending moves with every utterance; it rides the heartbeat instead of triggering a post of its own.
+    const key = JSON.stringify([
+      status.state,
+      status.pending > 0,
+      status.gaps.length,
+      status.quarantined,
+      status.lastError,
+    ])
+    const now = Date.now()
+    const changed = key !== this.phoneStatusKey
+    if (!changed && !(heartbeat && now - this.phoneStatusAt >= LEARNING_TICK_MS)) return
+    if (changed && !this.phoneStatusKey && !this.settings.learningCapture && status.pending === 0) return
+    this.phoneStatusKey = key
+    this.phoneStatusAt = now
+    const ok = await this.learningTransport.postPhoneStatus({
+      state: status.state,
+      pending: status.pending,
+      gaps: status.gaps,
+      quarantined: status.quarantined,
+      lastError: status.lastError,
+    })
+    if (!ok) {
+      diagnostics.increment("learning.phone_status_failures")
+      this.phoneStatusKey = "" // try again on the next change or heartbeat
+    }
   }
 
   private snapshot(): LinkLingoSnapshot {

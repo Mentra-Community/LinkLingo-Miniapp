@@ -69,6 +69,17 @@ export function ServerScreen({screen, ctx}: {screen: Screen; ctx: BlockContext})
   }, [screen.id, screen.period, range, date, attempt])
 
   const step = range === "week" ? 7 : 1
+  // A successful action (pairing) changes what the screen should say, so reload it.
+  const screenCtx: BlockContext = ctx.onAction
+    ? {
+        ...ctx,
+        onAction: async (action, value) => {
+          const outcome = await ctx.onAction!(action, value)
+          if (outcome.ok) setAttempt((n) => n + 1)
+          return outcome
+        },
+      }
+    : ctx
 
   return (
     <div className={`stack${loading && view ? " stale" : ""}`}>
@@ -121,7 +132,7 @@ export function ServerScreen({screen, ctx}: {screen: Screen; ctx: BlockContext})
           </div>
         </section>
       ) : view ? (
-        <ViewBlocks blocks={view.blocks} ctx={ctx} />
+        <ViewBlocks blocks={view.blocks} ctx={screenCtx} />
       ) : (
         <section className="card">
           <p className="hint">Loading…</p>

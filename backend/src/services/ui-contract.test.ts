@@ -16,7 +16,7 @@ const phone = (await import(join(root, "miniapp/src/shared/serverContract.ts")))
 }
 
 const SETTING_TYPES = new Set(["toggle", "select", "slider"])
-const VIEW_TYPES = new Set(["section", "tiles", "bars", "words", "list", "text", ...SETTING_TYPES])
+const VIEW_TYPES = new Set(["section", "tiles", "bars", "words", "list", "text", "input", ...SETTING_TYPES])
 
 function walk(blocks: ViewBlock[], visit: (block: ViewBlock) => void): void {
   for (const block of blocks) {

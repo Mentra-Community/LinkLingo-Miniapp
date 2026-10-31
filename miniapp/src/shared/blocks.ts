@@ -8,7 +8,7 @@
  */
 
 /** Bumped when a block type is added; the phone renders only what it knows and skips the rest. */
-export const BLOCK_KIT_VERSION = 1
+export const BLOCK_KIT_VERSION = 2
 
 export type Tone = "default" | "accent" | "info" | "good" | "bad" | "muted"
 
@@ -35,6 +35,21 @@ export type SettingBlock =
   | (SettingBase & {type: "select"; options: Array<{value: SettingValue; label: string}>})
   | (SettingBase & {type: "slider"; min: number; max: number; step?: number})
 
+/**
+ * A text field with a submit button, for a value the learner has to bring (a
+ * pairing code). The phone sends it to the background under `action`; it is
+ * never written to settings and never placed in a URL. Added in kit 2.
+ */
+export interface InputBlock {
+  type: "input"
+  id: string
+  title: string
+  detail?: string
+  placeholder?: string
+  submitLabel: string
+  action: "learning-pair"
+}
+
 export type ViewBlock =
   | {type: "section"; title?: string; meta?: string; blocks: ViewBlock[]}
   | {type: "tiles"; items: Array<{value: string | number; label: string}>}
@@ -54,6 +69,7 @@ export type ViewBlock =
       items: Array<{text: string; detail?: string; was?: string; tone?: Tone}>
     }
   | {type: "text"; text: string; tone?: "hint" | "body" | "error"}
+  | InputBlock
   | SettingBlock
 
 export interface View {

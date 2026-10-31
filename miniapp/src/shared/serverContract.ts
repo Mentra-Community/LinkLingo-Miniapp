@@ -16,6 +16,7 @@ export const SETTABLE_KEYS = [
   "proficiency",
   "displayLines",
   "displayWidth",
+  "learningCapture",
 ] as const
 
 export type SettableKey = (typeof SETTABLE_KEYS)[number]

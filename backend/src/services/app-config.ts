@@ -56,7 +56,10 @@ const SETTINGS: ViewBlock[] = [
 const PREF_DEFAULTS = {repeatThreshold: REPEAT_THRESHOLD}
 
 /** Each one needs a builder in backend/src/api/views.api.ts. */
-const SCREENS: AppConfig["screens"] = [{id: "reports", title: "Reports", period: true}]
+const SCREENS: AppConfig["screens"] = [
+  {id: "reports", title: "Reports", period: true},
+  {id: "learning", title: "Learning"},
+]
 
 export function buildAppConfig(): AppConfig {
   const content = {tunables: TUNABLES, settings: SETTINGS, screens: SCREENS, prefDefaults: PREF_DEFAULTS}

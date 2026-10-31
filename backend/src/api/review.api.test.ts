@@ -1,12 +1,15 @@
 import {afterAll, beforeEach, describe, expect, test} from "bun:test"
 
+import {setVocabularyScanner} from "../services/learning-runtime"
 import {reviewLog} from "../services/review-log"
 import {transcriptLog} from "../services/transcript-log"
+import type {VocabularyScanner} from "../services/vocabulary-scan"
 import {parseTime, reviewApi} from "./review.api"
 
 const previousToken = process.env.LINKLINGO_REVIEW_TOKEN
 
 afterAll(() => {
+  setVocabularyScanner(null)
   if (previousToken === undefined) delete process.env.LINKLINGO_REVIEW_TOKEN
   else process.env.LINKLINGO_REVIEW_TOKEN = previousToken
 })
@@ -103,6 +106,34 @@ describe("review api", () => {
     const text = await (await reviewApi.request("/transcripts?format=text", auth)).text()
     expect(text).toContain("heard:      我们今天下午要去参观博物馆")
     expect(text).toContain("would gloss:")
+  })
+
+  test("queries durable vocabulary candidates through operator authentication", async () => {
+    setVocabularyScanner({
+      stop() {},
+      query: async () => [
+        {
+          v: 1,
+          transcriptUser: "abc12345",
+          status: "delivered",
+          batch: {localDate: "2026-10-30", candidates: [{word: "斟酌"}]},
+          deliveryAttempts: 1,
+          lastDeliveryError: null,
+          deliveredAt: "2026-10-31T00:00:00.000Z",
+        },
+      ],
+    } as unknown as VocabularyScanner)
+    expect((await reviewApi.request("/vocabulary-candidates?date=bad", auth)).status).toBe(400)
+    const response = await reviewApi.request("/vocabulary-candidates?date=2026-10-30", auth)
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      count: number
+      batches: Array<{batch: {candidates: Array<{word: string}>}}>
+    }
+    expect(body.count).toBe(1)
+    expect(body.batches[0]!.batch.candidates[0]!.word).toBe("斟酌")
+    expect((await reviewApi.request("/vocabulary-candidates")).status).toBe(401)
+    setVocabularyScanner(null)
   })
 
   test("parses relative, epoch and ISO times", () => {

@@ -12,6 +12,7 @@ import {bundleApi, hostedBundleStatus} from "./bundle.api"
 import {configApi} from "./config.api"
 import {feedbackApi} from "./feedback.api"
 import {glossApi} from "./gloss.api"
+import {learningApi} from "./learning.api"
 import {requestObservability} from "./observability"
 import {reportsApi} from "./reports.api"
 import {viewsApi} from "./views.api"
@@ -98,6 +99,8 @@ export function createApp(): Hono {
   app.route("/api/gloss", glossApi)
   app.route("/api/upgrade", upgradeApi)
   app.route("/api/transcript", transcriptApi)
+  // Durable learning capture for the Mandarin app; off unless LINKLINGO_LEARNING_ENABLED=true.
+  app.route("/api/learning", learningApi)
   // "Ask the analyst": user-flagged problem + last 10 min of tape → smarter model.
   app.route("/api/feedback", feedbackApi)
   // The learner's own day/week dashboard, from the 90-day word ledger.

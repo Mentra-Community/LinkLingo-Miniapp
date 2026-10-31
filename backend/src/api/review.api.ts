@@ -3,8 +3,10 @@ import {Hono} from "hono"
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
 import {feedbackLog, formatFeedbackEntry, type FeedbackQuery} from "../services/feedback-log"
+import {getVocabularyScanner} from "../services/learning-runtime"
 import {formatReviewEntry, reviewLog, type ReviewOperation, type ReviewQuery} from "../services/review-log"
 import {formatTranscriptEntry, transcriptLog, type TranscriptQuery} from "../services/transcript-log"
+import type {StoredVocabularyBatch} from "../services/vocabulary-scan"
 import {storedTranscripts} from "../services/tape-s3"
 import {mergeById} from "../services/tape-store"
 import type {TranscriptDisposition} from "../shared-types"
@@ -118,6 +120,27 @@ reviewApi.get("/feedback", (c) => {
     return c.text(entries.map(formatFeedbackEntry).join("\n\n") + (entries.length ? "\n" : ""))
   }
   return c.json({count: entries.length, entries})
+})
+
+/** Durable generated batches, protected by the same operator token as raw transcripts. */
+reviewApi.get("/vocabulary-candidates", async (c) => {
+  const scanner = getVocabularyScanner()
+  if (!scanner) return c.json({error: "vocabulary scanner is not enabled"}, 503)
+  const date = c.req.query("date") || undefined
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return c.json({error: "date must be YYYY-MM-DD"}, 400)
+  }
+  const status = c.req.query("status")
+  if (status && status !== "ready" && status !== "delivered" && status !== "complete") {
+    return c.json({error: "status must be ready, delivered, or complete"}, 400)
+  }
+  const batches = await scanner.query({
+    date,
+    user: c.req.query("user") || undefined,
+    status: status as StoredVocabularyBatch["status"] | undefined,
+    limit: c.req.query("limit") ? Number(c.req.query("limit")) : undefined,
+  })
+  return c.json({count: batches.length, batches})
 })
 
 reviewApi.get("/stats", (c) =>

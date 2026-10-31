@@ -94,6 +94,8 @@ export function mentraAuthMiddleware() {
           })
         }
         c.set("mentraAuth", verified)
+        // Which keyring signed the token is the account's environment: a prod and a dev user must never share records.
+        c.set("mentraKeyring", label)
         await next()
         return
       } catch (error) {

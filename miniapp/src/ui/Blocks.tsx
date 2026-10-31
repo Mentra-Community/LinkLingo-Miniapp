@@ -1,4 +1,6 @@
-import type {Condition, SettingBlock, SettingValue, ViewBlock} from "../shared/blocks"
+import {useState} from "react"
+
+import type {Condition, InputBlock, SettingBlock, SettingValue, ViewBlock} from "../shared/blocks"
 import {SETTABLE_KEYS} from "../shared/serverContract"
 import type {LinkLingoSettings} from "../shared/types"
 
@@ -8,6 +10,8 @@ export interface BlockContext {
   /** `{input}` and `{output}` in block text become these language names. */
   vars: Record<string, string>
   onSet(key: string, value: SettingValue): void
+  /** Runs a block's action (an `input` submit) in the background and reports the outcome to show. */
+  onAction?(action: string, value: string): Promise<{ok: boolean; message?: string}>
 }
 
 const SETTING_TYPES = new Set(["toggle", "select", "slider"])
@@ -144,10 +148,63 @@ function Block({block, ctx}: {block: ViewBlock; ctx: BlockContext}) {
           {fill(block.text, ctx.vars)}
         </p>
       )
+    case "input":
+      return <InputRow block={block} ctx={ctx} />
     default:
       if (SETTING_TYPES.has((block as SettingBlock).type)) return <SettingRow block={block as SettingBlock} ctx={ctx} />
       return null
   }
+}
+
+function InputRow({block, ctx}: {block: InputBlock; ctx: BlockContext}) {
+  const [value, setValue] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ok: boolean; message?: string} | null>(null)
+  if (!ctx.onAction) return null
+  const submit = async () => {
+    const trimmed = value.trim()
+    if (!trimmed || busy) return
+    setBusy(true)
+    setResult(null)
+    try {
+      const outcome = await ctx.onAction!(block.action, trimmed)
+      setResult(outcome)
+      if (outcome.ok) setValue("")
+    } catch {
+      setResult({ok: false, message: "Something went wrong. Try again."})
+    } finally {
+      setBusy(false)
+    }
+  }
+  const title = fill(block.title, ctx.vars)
+  return (
+    <div className="row-copy">
+      <strong>{title}</strong>
+      {block.detail ? <span>{fill(block.detail, ctx.vars)}</span> : null}
+      <input
+        className="select"
+        style={{width: "100%", minHeight: 44, fontSize: 14, marginTop: 8}}
+        type="text"
+        aria-label={title}
+        placeholder={block.placeholder}
+        autoComplete="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        value={value}
+        disabled={busy}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void submit()
+        }}
+      />
+      <div className="actions">
+        <button type="button" className="ghost" disabled={busy || !value.trim()} onClick={() => void submit()}>
+          {busy ? "Working…" : block.submitLabel}
+        </button>
+      </div>
+      {result?.message ? <p className={result.ok ? "hint" : "diag-error"}>{result.message}</p> : null}
+    </div>
+  )
 }
 
 function Group({

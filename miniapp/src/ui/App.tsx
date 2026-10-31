@@ -88,6 +88,23 @@ export function App() {
       })
       mentra.send("link:set-setting", {key, value})
     },
+    onAction: (action, value) =>
+      new Promise((resolve) => {
+        if (action !== "learning-pair")
+          return resolve({ok: false, message: "This action is not available in this version."})
+        const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+        const timer = setTimeout(() => {
+          off()
+          resolve({ok: false, message: "No answer from LinkLingo. Check your connection and try again."})
+        }, 30_000)
+        const off = mentra.on("link:learning-pair-result", (payload) => {
+          if (payload.requestId !== requestId) return
+          clearTimeout(timer)
+          off()
+          resolve({ok: payload.ok, message: payload.message})
+        })
+        mentra.send("link:learning-pair", {requestId, code: value})
+      }),
   }
   const screens = snap.config.screens
   const activeScreen = screens.find((s) => s.id === view)

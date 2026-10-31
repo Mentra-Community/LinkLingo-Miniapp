@@ -30,6 +30,13 @@ export interface LinkLingoSettings {
   /** Fallback words this common are skipped; the learner has these in any language. */
   reverseKnownRank: number
   /**
+   * Opt-in: keep every final transcript segment on the phone and deliver it to
+   * the learning app. Off by default. A server-driven toggle may be bound to it
+   * (it is in SETTABLE_KEYS), but the server can only draw the switch: the value
+   * changes only when the learner taps it, and `normalizeSettings` accepts nothing but an explicit `true`.
+   */
+  learningCapture: boolean
+  /**
    * Settings only the backend reads, created by server-driven settings rows
    * (`prefs.<name>`). Stored here and sent with every backend request.
    */
@@ -62,6 +69,7 @@ export const DEFAULT_SETTINGS: LinkLingoSettings = {
   fastCooldown: true,
   reverseGloss: true,
   reverseKnownRank: 500,
+  learningCapture: false,
   prefs: {},
 }
 
