@@ -52,6 +52,12 @@ export interface GlossRequest {
    * input/output swapped plus its own rank cut and pick budget.
    */
   purpose?: GlossPurpose
+  /**
+   * Words explicitly detected as a mixed-language fallback on the phone
+   * ("那个 logistics"). Reverse glossing must not drop these merely because
+   * they are common in the learner's stronger language.
+   */
+  focusWords?: string[]
   /** Overrides the rank cut derived from `fluencyLevel`. Clamped server-side. */
   knownRank?: number
   /** Overrides the pick budget derived from `fluencyLevel`. Clamped to 1–3. */

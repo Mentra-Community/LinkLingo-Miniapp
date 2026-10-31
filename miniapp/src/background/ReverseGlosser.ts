@@ -15,6 +15,32 @@ const log = createLogger("reverse")
 // slots so the language being learned keeps room.
 const LATIN_WORD = /[A-Za-z\u00c0-\u024f][A-Za-z\u00c0-\u024f'’-]*/g
 const HAN = /[\u4e00-\u9fff]/
+const FALLBACK_STOP_WORDS = new Set([
+  "the",
+  "and",
+  "but",
+  "for",
+  "from",
+  "with",
+  "that",
+  "this",
+  "these",
+  "those",
+  "you",
+  "your",
+  "they",
+  "their",
+  "our",
+  "are",
+  "was",
+  "were",
+  "have",
+  "has",
+  "not",
+  "yes",
+  "yeah",
+  "okay",
+])
 
 /**
  * Glosses the words a learner falls back to in the language they already
@@ -25,7 +51,7 @@ const HAN = /[\u4e00-\u9fff]/
  */
 export class ReverseGlosser {
   private inFlight = false
-  private pending: {text: string; utteranceId?: string} | null = null
+  private pending: {text: string; focusWords: string[]; utteranceId?: string} | null = null
   private readonly recent = new Map<string, number>()
 
   constructor(
@@ -40,11 +66,11 @@ export class ReverseGlosser {
     if (fallback.length === 0) return false
     if (this.inFlight) {
       // Latest wins: an older fallback is less useful than the one just spoken.
-      this.pending = {text, utteranceId}
+      this.pending = {text, focusWords: fallback, utteranceId}
       diagnostics.increment("reverse.coalesced")
       return true
     }
-    void this.run(text, settings, utteranceId)
+    void this.run(text, fallback, settings, utteranceId)
     return true
   }
 
@@ -53,7 +79,12 @@ export class ReverseGlosser {
     this.recent.clear()
   }
 
-  private async run(text: string, settings: LinkLingoSettings, utteranceId?: string): Promise<void> {
+  private async run(
+    text: string,
+    focusWords: string[],
+    settings: LinkLingoSettings,
+    utteranceId?: string,
+  ): Promise<void> {
     this.inFlight = true
     diagnostics.increment("reverse.requests")
     const eligibleAt = Date.now()
@@ -67,6 +98,7 @@ export class ReverseGlosser {
         fluencyLevel: settings.proficiency,
         recentWords: this.recentKeys(eligibleAt),
         purpose: "reverse",
+        focusWords,
         knownRank: settings.reverseKnownRank,
         maxWords: tunable("reverseMaxWords"),
       },
@@ -94,7 +126,7 @@ export class ReverseGlosser {
 
     const next = this.pending
     this.pending = null
-    if (next) void this.run(next.text, settings, next.utteranceId)
+    if (next) void this.run(next.text, next.focusWords, settings, next.utteranceId)
   }
 
   private recentKeys(now: number): string[] {
@@ -121,11 +153,26 @@ export function reverseApplies(settings: LinkLingoSettings): boolean {
 export function fallbackWords(text: string, settings: LinkLingoSettings, recent: Iterable<string> = []): string[] {
   const output = outputLanguage(settings)
   const input = inputLanguage(settings)
+  const latinWords = text.match(LATIN_WORD) ?? []
   const words =
-    scriptOfLanguage(output) === "latin"
-      ? (text.match(LATIN_WORD) ?? []).join(" ")
-      : [...text].filter((c) => HAN.test(c)).join("")
+    scriptOfLanguage(output) === "latin" ? latinWords.join(" ") : [...text].filter((c) => HAN.test(c)).join("")
   if (!words) return []
+  // A lexical English word embedded in Chinese is strong evidence that the
+  // speaker reached for a word they could not produce in Chinese. Translate
+  // it even when it is common English; the frequency cut measures the wrong
+  // language skill for this case. Keep names, acronyms and discourse glue out.
+  if (scriptOfLanguage(output) === "latin" && HAN.test(text)) {
+    const seenRecently = new Set([...recent].map((word) => word.toLowerCase()))
+    return [
+      ...new Set(
+        latinWords
+          .filter((word) => word.length >= 3)
+          .filter((word) => word === word.toLowerCase())
+          .map((word) => word.toLowerCase())
+          .filter((word) => !FALLBACK_STOP_WORDS.has(word) && !seenRecently.has(word)),
+      ),
+    ]
+  }
   const rare = rareTokens(words, output, settings.reverseKnownRank, input, recent)
   // An output language with no bundled list cannot be judged on the phone; let the backend decide.
   if (rare === null) return words.split(/\s+/).filter(Boolean)

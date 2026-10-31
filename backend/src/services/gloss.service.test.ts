@@ -60,7 +60,7 @@ describe("glossService", () => {
     calls = []
     await glossService.gloss(request(80, HARD_ZH))
     expect(calls[0].user).toContain(`KNOWN=${knownRankFor(80)}`)
-    expect(calls[0].user).toContain("MAX=2")
+    expect(calls[0].user).toContain("MAX=3")
   })
 
   test("sends candidates as word:rank", async () => {
@@ -109,7 +109,7 @@ describe("glossService", () => {
     expect(beginner.words).toHaveLength(3)
 
     const intermediate = await glossService.gloss(request(45))
-    expect(intermediate.words.length).toBeLessThanOrEqual(2)
+    expect(intermediate.words.length).toBeLessThanOrEqual(3)
   })
 
   test("keeps accepted words and annotates them", async () => {
@@ -212,6 +212,22 @@ describe("glossService", () => {
       expect(result.words[0].translation).toContain("博物馆")
       expect(result.words[0].translation).toContain("bó")
       expect(reviewLog.list()[0].purpose).toBe("reverse")
+    })
+
+    test("a mixed-language focus word bypasses the English frequency cut", async () => {
+      reply = '{"words":[{"word":"work","translation":"工作"}]}'
+      const result = await glossService.gloss(
+        reverse({
+          conversationContext: "那个 work 怎么说",
+          focusWords: ["work"],
+          knownRank: 2000,
+        }),
+      )
+      expect(result.words).toHaveLength(1)
+      expect(result.words[0].word).toBe("work")
+      expect(calls[0].user).toContain("FOCUS=work")
+      expect(calls[0].user).toContain(REVERSE_HINT)
+      expect(reviewLog.list()[0].candidates).toEqual([expect.stringMatching(/^work:\d+$/)])
     })
 
     test("the hint rides in the user message only, so the prompt hash is unchanged", async () => {

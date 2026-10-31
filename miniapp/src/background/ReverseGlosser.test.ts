@@ -7,6 +7,7 @@ interface Sent {
   inputLanguage: string
   outputLanguage: string
   purpose?: string
+  focusWords?: string[]
   knownRank?: number
   maxWords?: number
 }
@@ -48,12 +49,14 @@ describe("fallback words", () => {
     expect(fallbackWords("我想去那个 museum 看看 exhibition", zhEn).sort()).toEqual(["exhibition", "museum"])
   })
 
-  test("skips the most common English at the chosen cut", () => {
+  test("always keeps lexical English embedded in Chinese", () => {
     expect(fallbackWords("I want to go there", zhEn)).toEqual([])
     expect(fallbackWords("我们 go 吧", zhEn)).toEqual([])
-    // A tighter cut keeps more words, a looser one drops them.
+    expect(fallbackWords("那个 work 怎么说", zhEn)).toEqual(["work"])
     expect(fallbackWords("那个 problem", {...zhEn, reverseKnownRank: 300})).toEqual(["problem"])
-    expect(fallbackWords("那个 problem", {...zhEn, reverseKnownRank: 2000})).toEqual([])
+    expect(fallbackWords("那个 problem", {...zhEn, reverseKnownRank: 2000})).toEqual(["problem"])
+    // Names and acronyms are not vocabulary fallbacks.
+    expect(fallbackWords("那个 Kevin 在 Mentra 工作", zhEn)).toEqual([])
   })
 
   test("only applies to pairs with different scripts, and not in translate mode", () => {
@@ -76,6 +79,7 @@ describe("ReverseGlosser", () => {
       inputLanguage: "en",
       outputLanguage: "zh",
       purpose: "reverse",
+      focusWords: ["museum"],
       knownRank: 500,
       maxWords: 2,
     })

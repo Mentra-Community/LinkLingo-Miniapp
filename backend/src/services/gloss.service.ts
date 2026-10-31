@@ -64,14 +64,9 @@ function formatCandidates(candidates: WordCandidate[]): string {
   return candidates.map((c) => `${c.word}:${c.rank}`).join(", ")
 }
 
-/**
- * How many words the HUD may show at once. Beginners need most of an utterance
- * decoded; advanced learners need the one word they missed. A budget of 1 at the
- * top end measured worse than 2 (38% vs 50% recall on the eval corpus) because
- * the model spent its single pick on the rarest word rather than the useful one.
- */
-function pickBudget(proficiency: number): number {
-  return proficiency < 34 ? 3 : 2
+/** The HUD reserves three word rows, so candidate selection may use all three. */
+function pickBudget(_proficiency: number): number {
+  return 3
 }
 
 const MIN_KNOWN_RANK = 100
@@ -95,6 +90,40 @@ export function resolveGlossLimits(body: Pick<GlossRequest, "fluencyLevel" | "kn
 /** Appended to the user message, not the system prompt, so the prompt hash stays comparable. */
 export const REVERSE_HINT =
   "Purpose: the speaker is learning the output language and fell back to these input-language words mid-conversation. Gloss the content words they reached for into the output language, even everyday ones."
+
+export const REVERSE_FOCUS_HINT =
+  "FOCUS words were explicitly detected inside speech in the language being learned. Translate every FOCUS word unless it is clearly a name, acronym, or recognition error."
+
+function focusCandidates(body: GlossRequest, context: string, knownRank: number, recent: string[]): WordCandidate[] {
+  if (body.purpose !== "reverse" || !Array.isArray(body.focusWords)) return []
+  const contextLower = context.toLocaleLowerCase()
+  const recentSet = new Set(
+    recent.map((word) =>
+      word
+        .toLocaleLowerCase()
+        .replace(/\s*\([^)]*\)/g, "")
+        .trim(),
+    ),
+  )
+  const seen = new Set<string>()
+  const words: WordCandidate[] = []
+  for (const raw of body.focusWords.slice(0, 3)) {
+    const word = typeof raw === "string" ? raw.trim() : ""
+    const bare = word.toLocaleLowerCase()
+    if (!bare || bare.length > 40 || seen.has(bare) || recentSet.has(bare)) continue
+    if (!contextLower.includes(bare)) continue
+    seen.add(bare)
+    const rank = lookupRank(bare, body.inputLanguage)
+    const effectiveRank = rank ?? MAX_KNOWN_RANK + 1
+    words.push({
+      word: bare,
+      rank: effectiveRank,
+      gap: effectiveRank - knownRank,
+      unknown: rank == null,
+    })
+  }
+  return words
+}
 
 function annotatePair(word: string, translation: string, inputLang: string, outputLang: string): GlossedWord {
   const inPinyin = languageWantsPinyin(inputLang)
@@ -147,9 +176,14 @@ export class GlossService {
       purpose,
     })
     const selectStarted = Date.now()
-    const candidates = context
-      ? candidateWords(context, body.inputLanguage, recent, knownRank, body.outputLanguage)
-      : []
+    const focused = context ? focusCandidates(body, context, knownRank, recent) : []
+    const candidates =
+      focused.length > 0
+        ? focused
+        : context
+          ? candidateWords(context, body.inputLanguage, recent, knownRank, body.outputLanguage)
+          : []
+    const focusedSet = new Set(focused.map((candidate) => candidate.word.toLocaleLowerCase()))
     const selectMs = Date.now() - selectStarted
 
     // The phone's completed timings describe an earlier request, so they are
@@ -268,6 +302,9 @@ export class GlossService {
       `Candidates: ${formatCandidates(candidates)}`,
       `Recent: ${recent.join(", ") || "(none)"}`,
       ...(purpose === "reverse" ? [REVERSE_HINT] : []),
+      ...(focused.length > 0
+        ? [`FOCUS=${focused.map((candidate) => candidate.word).join(", ")}`, REVERSE_FOCUS_HINT]
+        : []),
     ].join("\n")
 
     let result
@@ -360,7 +397,7 @@ export class GlossService {
       // when the model reshapes a word into a more common form. Dropping it
       // here is what keeps "hello" off an advanced learner's HUD.
       const rank = lookupRank(bare, body.inputLanguage)
-      if (rank != null && rank <= knownRank) {
+      if (rank != null && rank <= knownRank && !focusedSet.has(bare)) {
         reject("known")
         continue
       }
