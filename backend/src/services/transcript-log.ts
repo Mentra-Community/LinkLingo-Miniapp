@@ -1,6 +1,7 @@
 /**
- * Transcript tape: every final utterance the glasses heard, kept ~24h so a
- * reviewer can walk the day and decide what should have been glossed.
+ * Transcript tape: every final utterance the glasses heard. The in-memory
+ * ring keeps about 24h for the live reviewer; the durable objects are not
+ * deleted.
  *
  * This is not the model-output log. That one only sees speech that reached
  * Gemini. This one also keeps the skips — English in a Chinese session,
@@ -52,6 +53,8 @@ export interface TranscriptEntry {
   /** Build that produced the observation, so thresholds are comparable across releases. */
   clientVersion?: string
   clientBuildId?: string
+  /** Diarization label from the recognizer, such as "1" or "2". Absent when it reported none. */
+  speakerId?: string
 }
 
 export interface TranscriptQuery {
@@ -108,6 +111,7 @@ export class TranscriptLog {
       asrLeadMs: input.asrLeadMs,
       clientVersion: input.clientVersion,
       clientBuildId: input.clientBuildId,
+      speakerId: normalizeSpeakerId(input.speakerId),
     }
     this.entries.push(entry)
     this.prune(now)
@@ -187,11 +191,18 @@ export class TranscriptLog {
   }
 }
 
+export function normalizeSpeakerId(value: unknown): string | undefined {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) return String(value)
+  if (typeof value !== "string") return undefined
+  const speakerId = value.trim()
+  return speakerId && speakerId.length <= 32 ? speakerId : undefined
+}
+
 export function formatTranscriptEntry(entry: TranscriptEntry): string {
   const when = new Date(entry.at).toISOString().replace("T", " ").slice(0, 19)
   const asr = entry.detectedLanguage ? ` asr=${entry.detectedLanguage}` : ""
   const lines = [
-    `[${when}] ${entry.inputLanguage}→${entry.outputLanguage} ${entry.disposition} p=${entry.proficiency}${asr}`,
+    `[${when}] speaker=${entry.speakerId ?? "-"} ${entry.inputLanguage}→${entry.outputLanguage} ${entry.disposition} p=${entry.proficiency}${asr}`,
     `  heard:      ${entry.text || "(empty)"}`,
     `  would gloss: ${entry.wouldGloss.join(", ") || "(none)"}`,
   ]

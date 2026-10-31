@@ -27,8 +27,13 @@ export class S3ObjectStore implements ObjectStore {
   constructor(
     private readonly bucket: string,
     region: string,
+    /** `endpoint` points at an S3-compatible server (MinIO in tests and local runs). */
+    options: {endpoint?: string} = {},
   ) {
-    this.client = new S3Client({region})
+    this.client = new S3Client({
+      region,
+      ...(options.endpoint ? {endpoint: options.endpoint, forcePathStyle: true} : {}),
+    })
   }
 
   async put(key: string, body: string): Promise<void> {
@@ -53,15 +58,22 @@ export class S3ObjectStore implements ObjectStore {
     }
   }
 
-  async list(prefix: string): Promise<string[]> {
+  async list(prefix: string, options: {startAfter?: string; before?: string} = {}): Promise<string[]> {
     const keys: string[] = []
     let token: string | undefined
     do {
       const out = await this.client.send(
-        new ListObjectsV2Command({Bucket: this.bucket, Prefix: prefix, ContinuationToken: token}),
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          ContinuationToken: token,
+          ...(token || !options.startAfter ? {} : {StartAfter: options.startAfter}),
+        }),
       )
       for (const item of out.Contents ?? []) {
-        if (item.Key) keys.push(item.Key)
+        if (!item.Key) continue
+        if (options.before && item.Key >= options.before) return keys
+        keys.push(item.Key)
       }
       token = out.IsTruncated ? out.NextContinuationToken : undefined
     } while (token)
@@ -177,4 +189,10 @@ export async function refreshTape(): Promise<void> {
 
 export async function stopTapeStore(): Promise<void> {
   await Promise.all([flushTape(), historyStore.flush()])
+}
+
+/** Transcript objects outside the 24h hot ring. Empty when no tape bucket is attached. */
+export async function storedTranscripts(from: number, to: number): Promise<TranscriptEntry[]> {
+  if (!tape) return []
+  return (await tape.loadRange("transcript", from, to)) as TranscriptEntry[]
 }

@@ -13,8 +13,12 @@ class MapStore implements ObjectStore {
   async get(key: string): Promise<string | null> {
     return this.objects.get(key) ?? null
   }
-  async list(prefix: string): Promise<string[]> {
-    return [...this.objects.keys()].filter((key) => key.startsWith(prefix))
+  async list(prefix: string, options?: {startAfter?: string; before?: string}): Promise<string[]> {
+    return [...this.objects.keys()]
+      .filter((key) => key.startsWith(prefix))
+      .filter((key) => !options?.startAfter || key > options.startAfter)
+      .filter((key) => !options?.before || key < options.before)
+      .sort()
   }
   async delete(keys: string[]): Promise<void> {
     for (const key of keys) this.objects.delete(key)
@@ -48,13 +52,14 @@ describe("tape keys", () => {
 })
 
 describe("ObjectTape", () => {
-  test("reloads a row after the memory ring is gone, and drops it after 24h", async () => {
+  test("reloads recent rows, keeps every transcript, and still expires review rows", async () => {
     const store = new MapStore()
     const tape = new ObjectTape(store, 24 * HOUR)
     const now = 100 * HOUR
     await tape.put("transcript", {id: "keep", at: now - HOUR, user: "ab"})
-    await tape.put("transcript", {id: "drop", at: now - 25 * HOUR})
+    await tape.put("transcript", {id: "old", at: now - 25 * HOUR})
     await tape.put("review", {id: "g1", at: now, user: "ab"})
+    await tape.put("review", {id: "old-review", at: now - 25 * HOUR})
 
     const fresh = new ObjectTape(store, 24 * HOUR)
     const loaded = await fresh.loadAll(now)
@@ -62,8 +67,8 @@ describe("ObjectTape", () => {
     expect(loaded.review.map((e) => e.id)).toEqual(["g1"])
 
     expect(await fresh.prune(now)).toBe(1)
-    expect((await fresh.load("transcript", now)).map((e) => e.id)).toEqual(["keep"])
-    expect(store.objects.size).toBe(2)
+    expect((await fresh.loadRange("transcript", now - 26 * HOUR, now)).map((e) => e.id)).toEqual(["old", "keep"])
+    expect(store.objects.size).toBe(3)
   })
 
   test("a later write of the same id replaces the body", async () => {

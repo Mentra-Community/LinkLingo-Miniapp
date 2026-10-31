@@ -5,6 +5,8 @@ import {metrics} from "../observability/metrics"
 import {feedbackLog, formatFeedbackEntry, type FeedbackQuery} from "../services/feedback-log"
 import {formatReviewEntry, reviewLog, type ReviewOperation, type ReviewQuery} from "../services/review-log"
 import {formatTranscriptEntry, transcriptLog, type TranscriptQuery} from "../services/transcript-log"
+import {storedTranscripts} from "../services/tape-s3"
+import {mergeById} from "../services/tape-store"
 import type {TranscriptDisposition} from "../shared-types"
 
 const log = createLogger("review.api")
@@ -73,16 +75,31 @@ reviewApi.get("/entries", (c) => {
   return c.json({count: entries.length, entries})
 })
 
-reviewApi.get("/transcripts", (c) => {
+reviewApi.get("/transcripts", async (c) => {
   const disposition = c.req.query("disposition") as TranscriptDisposition | undefined
+  const since = parseTime(c.req.query("since"))
+  const until = parseTime(c.req.query("until"))
   const query: TranscriptQuery = {
-    since: parseTime(c.req.query("since")),
-    until: parseTime(c.req.query("until")),
+    since,
+    until,
     user: c.req.query("user") || undefined,
     disposition,
     limit: c.req.query("limit") ? Number(c.req.query("limit")) : undefined,
   }
-  const entries = transcriptLog.list(query)
+  let entries = transcriptLog.list(query)
+  if (since != null || until != null) {
+    const archived = await storedTranscripts(since ?? 0, until ?? Date.now()).catch((error) => {
+      log.warn("archived transcript read failed", {error})
+      return []
+    })
+    const limit = Math.max(1, Math.min(query.limit ?? 500, 20_000))
+    entries = mergeById(archived, entries)
+      .filter(
+        (entry) =>
+          (!query.user || entry.user === query.user) && (!query.disposition || entry.disposition === query.disposition),
+      )
+      .slice(-limit)
+  }
   if (c.req.query("format") === "text") {
     return c.text(entries.map(formatTranscriptEntry).join("\n\n") + (entries.length ? "\n" : ""))
   }

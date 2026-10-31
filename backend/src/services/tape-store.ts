@@ -1,7 +1,9 @@
 /**
- * Durable copy of the 24h tapes. The in-memory rings are what the review API
- * and the analyst read; this store is what a new pod loads after Karpenter
- * evicts the previous one. A missing store leaves the rings memory-only.
+ * Durable copy of the tapes. Transcript rows are kept indefinitely. Review
+ * and feedback rows still expire with the in-memory rings. Those rings are
+ * what the review API and the analyst read for recent traffic; this store is
+ * what a new pod loads after Karpenter evicts the previous one. A missing
+ * store leaves the rings memory-only.
  */
 
 import {createLogger} from "../observability/logger"
@@ -17,10 +19,17 @@ export interface StoredEntry {
   user?: string
 }
 
+export interface ObjectListOptions {
+  /** Return only keys that sort strictly after this key. */
+  startAfter?: string
+  /** Return only keys that sort strictly before this key. */
+  before?: string
+}
+
 export interface ObjectStore {
   put(key: string, body: string): Promise<void>
   get(key: string): Promise<string | null>
-  list(prefix: string): Promise<string[]>
+  list(prefix: string, options?: ObjectListOptions): Promise<string[]>
   delete(keys: string[]): Promise<void>
 }
 
@@ -37,6 +46,10 @@ function retentionMs(): number {
 export function tapeKey(kind: TapeKind, at: number, id: string): string {
   const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "_")
   return `v1/${kind}/${String(Math.trunc(at)).padStart(16, "0")}/${safeId}.json`
+}
+
+function timePrefix(kind: TapeKind, at: number): string {
+  return `v1/${kind}/${String(Math.trunc(at)).padStart(16, "0")}`
 }
 
 export function tapeKeyAt(key: string): number | null {
@@ -116,10 +129,43 @@ export class ObjectTape {
 
   async load(kind: TapeKind, now = Date.now()): Promise<StoredEntry[]> {
     const cutoff = now - this.retention
-    const keys = (await this.objects.list(`v1/${kind}/`)).filter((key) => {
-      const at = tapeKeyAt(key)
-      return at != null && at >= cutoff
+    const keys = await this.objects.list(`v1/${kind}/`, {startAfter: timePrefix(kind, cutoff)})
+    return this.readEntries(kind, keys)
+  }
+
+  async loadAll(now = Date.now()): Promise<Record<TapeKind, StoredEntry[]>> {
+    const [transcript, review, feedback] = await Promise.all(KINDS.map((kind) => this.load(kind, now)))
+    return {transcript, review, feedback}
+  }
+
+  /** Read one kind across an explicit window. Transcripts remain readable after the hot ring expires. */
+  async loadRange(kind: TapeKind, from: number, to: number): Promise<StoredEntry[]> {
+    const keys = await this.objects.list(`v1/${kind}/`, {
+      startAfter: timePrefix(kind, from),
+      before: timePrefix(kind, to + 1),
     })
+    return this.readEntries(kind, keys)
+  }
+
+  async prune(now = Date.now()): Promise<number> {
+    const cutoff = now - this.retention
+    let removed = 0
+    for (const kind of KINDS) {
+      // Sentence transcripts are the recoverable record of a conversation.
+      // Review and feedback rows are operational logs and still expire.
+      if (kind === "transcript") continue
+      const stale = (await this.objects.list(`v1/${kind}/`)).filter((key) => {
+        const at = tapeKeyAt(key)
+        return at == null || at < cutoff
+      })
+      if (stale.length === 0) continue
+      await this.objects.delete(stale)
+      removed += stale.length
+    }
+    return removed
+  }
+
+  private async readEntries(kind: TapeKind, keys: string[]): Promise<StoredEntry[]> {
     const bodies = await mapPool(keys, 12, (key) => this.objects.get(key))
     const entries: StoredEntry[] = []
     for (const body of bodies) {
@@ -132,25 +178,5 @@ export class ObjectTape {
       }
     }
     return entries.sort((a, b) => a.at - b.at)
-  }
-
-  async loadAll(now = Date.now()): Promise<Record<TapeKind, StoredEntry[]>> {
-    const [transcript, review, feedback] = await Promise.all(KINDS.map((kind) => this.load(kind, now)))
-    return {transcript, review, feedback}
-  }
-
-  async prune(now = Date.now()): Promise<number> {
-    const cutoff = now - this.retention
-    let removed = 0
-    for (const kind of KINDS) {
-      const stale = (await this.objects.list(`v1/${kind}/`)).filter((key) => {
-        const at = tapeKeyAt(key)
-        return at == null || at < cutoff
-      })
-      if (stale.length === 0) continue
-      await this.objects.delete(stale)
-      removed += stale.length
-    }
-    return removed
   }
 }

@@ -184,6 +184,8 @@ export function reportTranscript(
     mode: string
     disposition: TranscriptDisposition
     utteranceId?: string
+    /** Recognizer diarization label. Omitted when the recognizer did not report one. */
+    speakerId?: string
     /** Shadow-interim results for utterances whose final has now landed. */
     shadowInterim?: ShadowInterimObservation[]
     /** Realised lead when this utterance was glossed from an interim. */

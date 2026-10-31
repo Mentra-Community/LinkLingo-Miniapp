@@ -406,7 +406,7 @@ export class LinkLingoController {
     this.ui.send("link:caption", {text, isFinal: data.isFinal})
     const disposition = this.engine.consider(text, data.isFinal, this.settings, utterance.id)
     if (data.isFinal && text && disposition) {
-      this.recordTranscript(text, data.language, disposition, utterance.id)
+      this.recordTranscript(text, data.language, disposition, utterance.id, data.speakerId)
     }
   }
 
@@ -431,7 +431,13 @@ export class LinkLingoController {
     this.display.showTranslation(original, translated, this.settings)
     this.ui.send("link:translation", {original, translated, isFinal: data.isFinal})
     if (data.isFinal && (original || translated)) {
-      this.recordTranscript(original || translated, data.sourceLanguage, "translation_mode", utterance.id)
+      this.recordTranscript(
+        original || translated,
+        data.sourceLanguage,
+        "translation_mode",
+        utterance.id,
+        data.speakerId,
+      )
     }
   }
 
@@ -472,6 +478,7 @@ export class LinkLingoController {
     detectedLanguage: string | undefined,
     disposition: TranscriptDisposition,
     utteranceId?: string,
+    speakerId?: string,
   ): void {
     // Shadow results ride the transcript tape rather than the gloss tape:
     // they exist per utterance, including the many utterances that never
@@ -486,6 +493,7 @@ export class LinkLingoController {
       mode: this.settings.mode,
       disposition,
       utteranceId,
+      speakerId,
       shadowInterim: shadowInterim.length > 0 ? shadowInterim : undefined,
       // Only present when this utterance was glossed from an interim; it is
       // the realised version of what shadow mode predicted.

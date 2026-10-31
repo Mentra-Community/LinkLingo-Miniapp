@@ -238,4 +238,6 @@ export interface TranscriptRequest {
   /** Which bundle produced the shadow observations, so thresholds stay comparable. */
   clientVersion?: string
   clientBuildId?: string
+  /** Diarization label supplied by the phone. Absent when the recognizer reported none. */
+  speakerId?: string
 }

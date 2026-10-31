@@ -1,6 +1,6 @@
 import {describe, expect, test} from "bun:test"
 
-import {TranscriptLog, formatTranscriptEntry} from "./transcript-log"
+import {TranscriptLog, formatTranscriptEntry, normalizeSpeakerId} from "./transcript-log"
 
 const HOUR = 3_600_000
 
@@ -46,5 +46,22 @@ describe("TranscriptLog", () => {
       now,
     )
     expect(log.list({}, now).map((e) => e.text)).toEqual(["new"])
+  })
+
+  test("keeps the recognizer speaker id on the stored line", () => {
+    const log = new TranscriptLog(24 * HOUR, 100, null)
+    const entry = log.record({
+      text: "今天的题目是什么",
+      inputLanguage: "zh",
+      outputLanguage: "en",
+      fluencyLevel: 10,
+      mode: "gloss-captions",
+      disposition: "heard",
+      speakerId: " 2 ",
+    })
+    expect(entry.speakerId).toBe("2")
+    expect(normalizeSpeakerId(4)).toBe("4")
+    expect(normalizeSpeakerId("")).toBeUndefined()
+    expect(formatTranscriptEntry(entry)).toContain("speaker=2")
   })
 })

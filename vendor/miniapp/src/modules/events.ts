@@ -44,6 +44,8 @@ export interface TranscriptionData {
   text: string
   isFinal: boolean
   language?: string
+  /** Speaker id when the recognizer reports diarization, usually `"1"`, `"2"`, and so on. */
+  speakerId?: string
 }
 
 export interface TranslationData {
