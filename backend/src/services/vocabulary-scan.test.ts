@@ -1,7 +1,8 @@
-import {describe, expect, test} from "bun:test"
+import {beforeEach, describe, expect, test} from "bun:test"
 
 import type {SourceIdentity} from "../vendor/mandarin-contract"
 import {LearningService, transcriptUserFor, type LearningConfig} from "./learning-outbox"
+import {learnerVocabulary} from "./learner-vocabulary"
 import {ObjectTape, type ObjectListOptions, type ObjectStore} from "./tape-store"
 import type {TranscriptEntry} from "./transcript-log"
 import type {VocabularyBatch} from "./vocabulary-contract"
@@ -56,6 +57,8 @@ async function seedDay(store: ObjectStore, date: string, entries: TranscriptEntr
   const tape = new ObjectTape(store)
   for (const entry of entries) await tape.put("transcript", entry)
 }
+
+beforeEach(() => learnerVocabulary.clear())
 
 describe("China-local day boundaries", () => {
   test("selects the prior complete Asia/Shanghai day at both sides of midnight", () => {
@@ -147,7 +150,9 @@ describe("daily vocabulary scanner", () => {
         },
       },
     })
+    learnerVocabulary.clear()
     expect(await restarted.runDay(date)).toBe("complete")
+    expect(learnerVocabulary.match("user-a", "还需要继续斟酌。", 3_000, [], 3)[0]?.word).toBe("斟酌")
   })
 
   test("retries an identical stored batch after a lost/failed delivery", async () => {

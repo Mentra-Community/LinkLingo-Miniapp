@@ -11,6 +11,10 @@ describe("stripIncompleteLastWord", () => {
     expect(stripIncompleteLastWord("hello there.")).toBe("hello there.")
     expect(stripIncompleteLastWord("你好吗？")).toBe("你好吗？")
   })
+
+  test("keeps an unpunctuated Chinese utterance after earlier context", () => {
+    expect(stripIncompleteLastWord("我们先讨论过了。 这个影响很深远")).toBe("我们先讨论过了。 这个影响很深远")
+  })
 })
 
 describe("hasSentenceEnd", () => {

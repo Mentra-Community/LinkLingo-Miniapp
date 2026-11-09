@@ -444,9 +444,11 @@ function scoreTokens(transcript: string, language: string, outputLanguage?: stri
     const dict = dictForToken(cleaned, lang)
     const rank = dict ? effectiveRank(cleaned, dict) : null
     if (rank == null) {
-      // A hanzi token this short that no dictionary knows is jieba splitting
-      // mid-phrase (`少吃`), not vocabulary. Latin capitals are proper nouns.
-      if (isCjk && cleaned.length <= 2) continue
+      // Keep an unknown multi-Hanzi token that Jieba recognized as a unit:
+      // modern slang and technical vocabulary such as 玄学, 品控 and 预训练
+      // often has no frequency rank, but is exactly what an advanced learner
+      // needs. Unknown single Hanzi remain too ambiguous to force live.
+      if (isCjk && cleaned.length === 1) continue
       if (!isCjk && /^[A-Z]/.test(cleaned)) continue
     } else if (isCjk && cleaned.length === 1 && rank < SINGLE_CHAR_MIN_CANDIDATE_RANK) {
       continue

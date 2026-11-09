@@ -126,6 +126,11 @@ describe("candidateWords rank cut", () => {
     const mid = candidateWords(text, "zh", [], knownRankFor(50)).map((c) => c.word)
     expect(mid).not.toContain("太冷")
   })
+
+  test("keeps unknown multi-character Mandarin terms", () => {
+    const words = candidateWords("这个说法有点玄学。", "zh", [], knownRankFor(90)).map((candidate) => candidate.word)
+    expect(words).toContain("玄学")
+  })
 })
 
 describe("single-character hanzi", () => {

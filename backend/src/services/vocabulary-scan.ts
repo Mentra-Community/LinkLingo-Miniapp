@@ -12,6 +12,7 @@ import {createHash} from "node:crypto"
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
 import {generateJson, resolveAnalystModel, resolveAnalystProvider, resolveApiKey} from "./gemini"
+import {learnerVocabulary} from "./learner-vocabulary"
 import {lookupRank} from "./frequency"
 import {toPinyin} from "./pinyin"
 import {ObjectTape, type ObjectStore} from "./tape-store"
@@ -346,6 +347,7 @@ export class VocabularyScanner {
   async runDay(date: string, now = this.now()): Promise<"complete" | "partial"> {
     const prior = safeJson(await this.deps.store.get(runKey(date))) as DailyRunCheckpoint | null
     if (prior?.status === "complete") {
+      await this.hydrateLiveVocabulary(date)
       await this.retryDeliveries(date, now)
       return "complete"
     }
@@ -369,6 +371,7 @@ export class VocabularyScanner {
           stored = await this.scanUser(date, user, entries, now)
           await this.saveBatch(stored)
         }
+        learnerVocabulary.remember(user, stored.batch.candidates)
         await this.deliver(stored, now)
       } catch (error) {
         failedUsers.push(user)
@@ -420,6 +423,12 @@ export class VocabularyScanner {
       records.push(parsed)
     }
     return records.slice(-limit)
+  }
+
+  private async hydrateLiveVocabulary(date: string): Promise<void> {
+    for (const stored of await this.query({date, limit: 1000})) {
+      learnerVocabulary.remember(stored.transcriptUser, stored.batch.candidates)
+    }
   }
 
   private async scanUser(

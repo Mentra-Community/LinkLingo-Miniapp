@@ -53,9 +53,10 @@ export interface GlossRequest {
    */
   purpose?: GlossPurpose
   /**
-   * Words explicitly detected as a mixed-language fallback on the phone
-   * ("那个 logistics"). Reverse glossing must not drop these merely because
-   * they are common in the learner's stronger language.
+   * Exact terms detected on the phone. Forward focus words are already above
+   * the learner's rank threshold and prevent tokenizer disagreement from
+   * dropping them. Reverse focus words are mixed-language fallbacks
+   * ("那个 logistics") and bypass the stronger-language frequency cut.
    */
   focusWords?: string[]
   /** Overrides the rank cut derived from `fluencyLevel`. Clamped server-side. */

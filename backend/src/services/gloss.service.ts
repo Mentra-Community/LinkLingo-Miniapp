@@ -5,6 +5,7 @@ import type {GlossRequest, GlossResponse, GlossedWord} from "../shared-types"
 import {candidateWords, knownRankFor, lookupRank, type WordCandidate} from "./frequency"
 import {allowMockLlm, generateJson, LlmServiceError, resolveApiKey, resolveModel, resolveProvider} from "./gemini"
 import {historyStore} from "./history-store"
+import {learnerVocabulary} from "./learner-vocabulary"
 import {annotateChinese, isChinese, languageIsChinese, languageWantsPinyin} from "./pinyin"
 import {digest, reviewLog, type ReviewEntryInput} from "./review-log"
 import {looksUntranslated} from "./script"
@@ -19,13 +20,12 @@ export const GLOSS_SYSTEM = `You gloss unfamiliar words for a language learner l
 The learner already knows roughly the KNOWN most common words of the input language. Each candidate is written as word:rank, where rank is its frequency rank in that language (1 = most common). Every candidate is already rarer than the learner's vocabulary, so the higher the rank, the less likely they know it.
 
 Rules:
-- Pick at most MAX candidates, choosing the ones with the highest learning value: content words (nouns, verbs, adjectives, set phrases) the learner most plausibly cannot follow.
-- Prefer higher-rank candidates, but skip proper names, numbers, mistranscriptions and fragments however rare they look.
+- Translate every candidate in the supplied order. The server already ranked, filtered and capped the list at MAX, so do not make another learning-value decision and do not return an empty list when candidates exist.
+- Skip only an unmistakable proper name, number, mistranscription or fragment.
 - Pick ONLY from CANDIDATES. Never invent, split or reshape a word.
 - Translate each pick into the output language in 1-4 words, accurate for this context. The translation must be written in the output language: never a synonym, paraphrase or spelling of the word in its own language.
 - A candidate already written in the output language is not vocabulary to learn — the learner reads that language natively. Skip it.
 - Never re-gloss a word in RECENT.
-- Returning {"words":[]} is a good answer when nothing is worth glossing, which is common for fluent learners.
 - Return JSON only: {"words":[{"word":"...","translation":"..."}]}
 
 Examples:
@@ -35,25 +35,41 @@ KNOWN=444 MAX=3  Candidates: 博物馆:4156, 参观:3649, 餐厅:1700  Input=Chi
 KNOWN=5641 MAX=2  Candidates: ramifications:21455, socioeconomic:38210, thesis:5980  Input=English Output=Chinese
 → {"words":[{"word":"socioeconomic","translation":"社会经济的"},{"word":"ramifications","translation":"影响"}]}
 
-KNOWN=10144 MAX=2  Candidates: Tuesday:11450, subway:9800  Input=English Output=Chinese
-→ {"words":[]}`
+KNOWN=10144 MAX=2  Candidates: Tuesday:11450  Input=English Output=Chinese
+→ {"words":[{"word":"Tuesday","translation":"星期二"}]}`
 
-const GLOSS_SCHEMA = {
-  type: "object",
-  properties: {
-    words: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          word: {type: "string"},
-          translation: {type: "string"},
+function glossSchema(requiredWords: number) {
+  return {
+    type: "object",
+    properties: {
+      words: {
+        type: "array",
+        minItems: requiredWords,
+        maxItems: requiredWords,
+        items: {
+          type: "object",
+          properties: {
+            word: {type: "string"},
+            translation: {type: "string"},
+          },
+          required: ["word", "translation"],
         },
-        required: ["word", "translation"],
       },
     },
-  },
-  required: ["words"],
+    required: ["words"],
+  } as const
+}
+
+function mergeCandidates(primary: WordCandidate[], secondary: WordCandidate[]): WordCandidate[] {
+  const seen = new Set<string>()
+  const out: WordCandidate[] = []
+  for (const candidate of [...primary, ...secondary]) {
+    const key = candidate.word.toLocaleLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(candidate)
+  }
+  return out
 }
 
 /** Identifies the prompt an entry in the review log was produced under. */
@@ -94,8 +110,12 @@ export const REVERSE_HINT =
 export const REVERSE_FOCUS_HINT =
   "FOCUS words were explicitly detected inside speech in the language being learned. Translate every FOCUS word unless it is clearly a name, acronym, or recognition error."
 
+export const FORWARD_FOCUS_HINT =
+  "FOCUS words were ranked above the learner's known-vocabulary threshold on the phone. Translate every FOCUS word in order; do not omit valid vocabulary."
+
 function focusCandidates(body: GlossRequest, context: string, knownRank: number, recent: string[]): WordCandidate[] {
-  if (body.purpose !== "reverse" || !Array.isArray(body.focusWords)) return []
+  if (!Array.isArray(body.focusWords)) return []
+  const reverse = body.purpose === "reverse"
   const contextLower = context.toLocaleLowerCase()
   const recentSet = new Set(
     recent.map((word) =>
@@ -114,6 +134,7 @@ function focusCandidates(body: GlossRequest, context: string, knownRank: number,
     if (!contextLower.includes(bare)) continue
     seen.add(bare)
     const rank = lookupRank(bare, body.inputLanguage)
+    if (!reverse && rank != null && rank <= knownRank) continue
     const effectiveRank = rank ?? MAX_KNOWN_RANK + 1
     words.push({
       word: bare,
@@ -176,13 +197,27 @@ export class GlossService {
       purpose,
     })
     const selectStarted = Date.now()
+    const userId = currentRequestContext()?.userId
+    const historyUser = userId ? digest(userId) : undefined
+    const learned =
+      purpose === "forward" &&
+      languageIsChinese(body.inputLanguage) &&
+      /^(en|english)(?:[-_]|$)/i.test(body.outputLanguage)
+        ? learnerVocabulary.match(historyUser, context, knownRank, recent, maxWords)
+        : []
+    const learnedCandidates: WordCandidate[] = learned.map((term) => ({
+      word: term.word,
+      rank: term.rank,
+      gap: term.rank - knownRank,
+      unknown: term.rank > MAX_KNOWN_RANK,
+    }))
     const focused = context ? focusCandidates(body, context, knownRank, recent) : []
-    const candidates =
-      focused.length > 0
+    const ranked = context ? candidateWords(context, body.inputLanguage, recent, knownRank, body.outputLanguage) : []
+    const candidates = (
+      purpose === "reverse" && focused.length > 0
         ? focused
-        : context
-          ? candidateWords(context, body.inputLanguage, recent, knownRank, body.outputLanguage)
-          : []
+        : mergeCandidates(learnedCandidates, mergeCandidates(focused, ranked))
+    ).slice(0, maxWords)
     const focusedSet = new Set(focused.map((candidate) => candidate.word.toLocaleLowerCase()))
     const selectMs = Date.now() - selectStarted
 
@@ -276,6 +311,47 @@ export class GlossService {
       }
     }
 
+    const learnedByWord = new Map(learned.map((term) => [term.word.toLocaleLowerCase(), term]))
+    const learnedMatches = candidates
+      .map((candidate) => learnedByWord.get(candidate.word.toLocaleLowerCase()))
+      .filter((term): term is NonNullable<typeof term> => Boolean(term))
+    if (learnedMatches.length === candidates.length) {
+      const words = learnedMatches.map((term) =>
+        annotatePair(term.word, term.translation, body.inputLanguage, body.outputLanguage),
+      )
+      const at = Date.now()
+      for (const word of words) {
+        historyStore.record(historyUser, {
+          kind: "gloss",
+          at,
+          word: word.word,
+          translation: word.translation,
+          in: body.inputLanguage,
+          out: body.outputLanguage,
+        })
+      }
+      const totalMs = Date.now() - started
+      metrics.observe("gloss_total_duration", totalMs)
+      metrics.increment("gloss_outcomes_total", {outcome: "learned_cache"})
+      metrics.increment("gloss_words_emitted_total", {}, words.length)
+      review({outcome: "learned_cache", accepted: words, totalMs})
+      call.info("gloss complete from learner vocabulary", {
+        totalMs,
+        candidateCount: candidates.length,
+        acceptedCount: words.length,
+      })
+      return {
+        words,
+        profiling: {
+          requestId: currentRequestContext()?.requestId,
+          totalMs,
+          model: "learner-vocabulary",
+          candidateCount: candidates.length,
+          knownRank,
+        },
+      }
+    }
+
     if (!this.deps.apiKey() && this.deps.allowMock()) {
       const first = candidates[0]
       metrics.increment("gloss_outcomes_total", {outcome: "mock"})
@@ -303,7 +379,10 @@ export class GlossService {
       `Recent: ${recent.join(", ") || "(none)"}`,
       ...(purpose === "reverse" ? [REVERSE_HINT] : []),
       ...(focused.length > 0
-        ? [`FOCUS=${focused.map((candidate) => candidate.word).join(", ")}`, REVERSE_FOCUS_HINT]
+        ? [
+            `FOCUS=${focused.map((candidate) => candidate.word).join(", ")}`,
+            purpose === "reverse" ? REVERSE_FOCUS_HINT : FORWARD_FOCUS_HINT,
+          ]
         : []),
     ].join("\n")
 
@@ -316,7 +395,7 @@ export class GlossService {
         // this budget and gpt-oss cannot disable it. At 192 the JSON was cut off
         // on 15% of calls and recall fell from 92% to 69%.
         maxOutputTokens: 512,
-        responseSchema: GLOSS_SCHEMA,
+        responseSchema: glossSchema(candidates.length),
         operation: "gloss",
         provider: this.deps.provider(),
       })
@@ -405,10 +484,9 @@ export class GlossService {
       if (words.length >= maxWords) break
     }
 
-    const userId = currentRequestContext()?.userId
     const at = Date.now()
     for (const word of words) {
-      historyStore.record(userId ? digest(userId) : undefined, {
+      historyStore.record(historyUser, {
         kind: purpose === "reverse" ? "reverse" : "gloss",
         at,
         word: word.word,

@@ -5,6 +5,12 @@ import type {GlossAttempt} from "./glossTelemetry"
 
 interface Captured {
   context: string
+  body: {
+    purpose?: string
+    focusWords?: string[]
+    knownRank?: number
+    maxWords?: number
+  }
   attempt: GlossAttempt
 }
 
@@ -12,8 +18,12 @@ const calls: Captured[] = []
 let preconnects = 0
 
 mock.module("./backend", () => ({
-  requestGloss: async (_session: unknown, body: {conversationContext: string}, attempt: GlossAttempt) => {
-    calls.push({context: body.conversationContext, attempt})
+  requestGloss: async (
+    _session: unknown,
+    body: Captured["body"] & {conversationContext: string},
+    attempt: GlossAttempt,
+  ) => {
+    calls.push({context: body.conversationContext, body, attempt})
     return {ok: true, data: {words: [], profiling: {requestId: `rid-${calls.length}`}}}
   },
   requestUpgrade: async () => ({ok: false, message: "off"}),
@@ -66,18 +76,32 @@ describe("GlossEngine interim triggering", () => {
 
   test("a shorter interim waits until it stops being revised", async () => {
     const {say} = harness()
+    say("我们今天下午去参观博物馆。", true)
+    await Bun.sleep(300)
+    calls.length = 0
     // Short enough to miss the growth threshold, but carrying a rare word so
     // the on-device prefilter does not suppress the call outright.
     say("影响深远", false)
-    await Bun.sleep(120)
+    await Bun.sleep(90)
     // The revision restarts the clock.
     say("影响很深远", false)
-    await Bun.sleep(120)
+    await Bun.sleep(90)
     expect(calls).toHaveLength(0)
 
-    await Bun.sleep(280)
+    await Bun.sleep(100)
     expect(calls).toHaveLength(1)
     expect(calls[0]!.attempt.trigger).toBe("interim")
+  })
+
+  test("sends exact above-threshold terms as mandatory forward focus", () => {
+    const {say} = harness()
+    say("我们去参观博物馆", false)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.body.purpose).toBe("forward")
+    expect(calls[0]!.body.focusWords).toContain("博物馆")
+    expect(calls[0]!.body.knownRank).toBeGreaterThan(0)
+    expect(calls[0]!.body.maxWords).toBe(3)
   })
 
   test("an utterance with nothing above the learner's vocabulary never leaves the phone", async () => {

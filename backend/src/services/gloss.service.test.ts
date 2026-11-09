@@ -1,9 +1,11 @@
 import {beforeEach, describe, expect, test} from "bun:test"
 
+import {runWithRequestContext} from "../observability/context"
 import {knownRankFor} from "./frequency"
 import type {GeminiCallOptions, GeminiCallResult} from "./gemini"
-import {GLOSS_PROMPT_VERSION, GlossService, REVERSE_HINT, resolveGlossLimits} from "./gloss.service"
-import {reviewLog} from "./review-log"
+import {FORWARD_FOCUS_HINT, GLOSS_PROMPT_VERSION, GlossService, REVERSE_HINT, resolveGlossLimits} from "./gloss.service"
+import {learnerVocabulary} from "./learner-vocabulary"
+import {digest, reviewLog} from "./review-log"
 
 /** Every prompt the service built, so tests can assert on the contract. */
 let calls: GeminiCallOptions[] = []
@@ -41,6 +43,7 @@ function request(proficiency: number, context = ZH) {
 beforeEach(() => {
   calls = []
   reply = '{"words":[]}'
+  learnerVocabulary.clear()
   reviewLog.clear()
 })
 
@@ -68,6 +71,51 @@ describe("glossService", () => {
     const line = calls[0].user.split("\n").find((l) => l.startsWith("Candidates:"))!
     expect(line).toMatch(/博物馆:\d+/)
     expect(line).not.toContain(".")
+  })
+
+  test("requires every phone-ranked focus term even when backend tokenization disagrees", async () => {
+    reply = '{"words":[{"word":"预训练","translation":"pre-training"}]}'
+    const result = await glossService.gloss({
+      ...request(90, "这个模型需要预训练。"),
+      purpose: "forward",
+      focusWords: ["预训练"],
+      knownRank: 10_000,
+      maxWords: 1,
+    })
+
+    expect(result.words[0]?.translation).toBe("pre-training")
+    expect(calls[0].user).toContain("Candidates: 预训练:")
+    expect(calls[0].user).toContain("FOCUS=预训练")
+    expect(calls[0].user).toContain(FORWARD_FOCUS_HINT)
+    expect(calls[0].system).toContain("Translate every candidate")
+    expect(calls[0].responseSchema).toMatchObject({
+      properties: {words: {minItems: 1, maxItems: 1}},
+    })
+  })
+
+  test("serves a nightly-discovered term without another model call", async () => {
+    learnerVocabulary.remember(digest("learner-1"), [
+      {
+        word: "玄学",
+        pinyin: "xuán xué",
+        english: "mystical guesswork",
+        corpusRank: null,
+        totalAppearances: 4,
+        distinctSessions: 2,
+        contexts: [{text: "这个有点玄学", capturedAt: "2026-11-08T00:00:00.000Z", sessionId: "s1"}],
+        reasons: ["Repeated unfamiliar term"],
+        confidence: "high",
+      },
+    ])
+
+    const result = await runWithRequestContext({requestId: "request-1", userId: "learner-1"}, () =>
+      glossService.gloss(request(90, "这个说法有点玄学。")),
+    )
+
+    expect(result.words).toEqual([{word: "玄学 (xuán xué)", translation: "mystical guesswork"}])
+    expect(result.profiling.model).toBe("learner-vocabulary")
+    expect(calls).toHaveLength(0)
+    expect(reviewLog.list()[0]?.outcome).toBe("learned_cache")
   })
 
   test("reports the rank cut it used in profiling", async () => {
@@ -101,7 +149,7 @@ describe("glossService", () => {
       words: [
         {word: "博物馆", translation: "museum"},
         {word: "参观", translation: "to visit"},
-        {word: "餐厅", translation: "restaurant"},
+        {word: "吃晚饭", translation: "eat dinner"},
         {word: "附近", translation: "nearby"},
       ],
     })

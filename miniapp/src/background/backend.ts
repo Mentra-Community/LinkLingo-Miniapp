@@ -109,7 +109,7 @@ export async function requestGloss(
     fluencyLevel: number
     recentWords: string[]
     purpose?: "forward" | "reverse"
-    /** Mixed-language fallback words that must bypass the reverse frequency cut. */
+    /** Exact above-threshold forward terms or mixed-language reverse fallbacks. */
     focusWords?: string[]
     knownRank?: number
     maxWords?: number

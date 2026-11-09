@@ -64,6 +64,10 @@ export function stripIncompleteLastWord(text: string): string {
   const trimmed = text.trim()
   if (!trimmed) return ""
   if (/[.!?。！？；;：:]$/.test(trimmed)) return trimmed
+  // Chinese ASR does not delimit words with spaces. The only space in a
+  // multi-utterance Chinese context is inserted by TranscriptBuffer itself,
+  // so dropping everything after it would discard the entire live utterance.
+  if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]$/u.test(trimmed)) return trimmed
   const words = trimmed.split(/\s+/)
   if (words.length <= 1) return trimmed
   return words.slice(0, -1).join(" ")

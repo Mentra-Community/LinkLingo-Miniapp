@@ -16,6 +16,7 @@ export const LEARNING_SCHEMA_VERSION = 1 as const;
 /** Largest accepted recognized-text length for one final segment. */
 export const MAX_EVENT_TEXT = 2000;
 export const MAX_BATCH_EVENTS = 100;
+export const MAX_VOCABULARY_BATCH_ITEMS = 200;
 
 const Id = z.string().trim().min(8).max(100).regex(/^[A-Za-z0-9_-]+$/, "ids use letters, digits, - and _");
 const IsoTime = z.string().datetime({ offset: true });
@@ -146,6 +147,122 @@ export function isCommitted(outcome: IngestOutcome): boolean {
 export function isFinal(outcome: IngestOutcome): boolean {
   return isCommitted(outcome) || outcome === "deleted";
 }
+
+// ------------------------------------------------------ Vocabulary inbox
+
+export const VocabularyCandidateStateSchema = z.enum(["pending", "known", "deferred", "saving", "accepted"]);
+export type VocabularyCandidateState = z.infer<typeof VocabularyCandidateStateSchema>;
+
+export const VocabularyBatchItemSchema = z.object({
+  /** The display form Link Lingo heard. */
+  word: z.string().trim().min(1).max(100),
+  /** Optional sender key. Mandarin normalizes `word` itself and rejects a mismatched key. */
+  normalizedWord: z.string().trim().min(1).max(100).optional(),
+  pinyin: z.string().trim().max(200).default(""),
+  /** English card front. */
+  meaning: z.string().trim().min(1).max(500),
+  /** Short English situation shown on the card front. */
+  situation: z.string().trim().min(1).max(500),
+  count: z.number().int().positive().max(10_000).default(1),
+  /** Stable Link Lingo listening-run IDs. Distinct values accumulate across batches. */
+  sessionIds: z.array(Id).min(1).max(100),
+  /** Original heard Chinese sentences. Distinct values accumulate across batches. */
+  contexts: z.array(z.string().trim().min(1).max(MAX_EVENT_TEXT)).min(1).max(100),
+  rank: z.number().int().positive().max(1_000_000).nullable().default(null),
+  reasons: z.array(z.string().trim().min(1).max(200)).max(50).default([]),
+});
+export type VocabularyBatchItem = z.infer<typeof VocabularyBatchItemSchema>;
+
+export const VocabularyBatchRequestSchema = z.object({
+  schemaVersion: z.literal(LEARNING_SCHEMA_VERSION),
+  /** Stable across delivery retries. */
+  batchId: Id,
+  sourceDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  candidates: z.array(VocabularyBatchItemSchema).min(1).max(MAX_VOCABULARY_BATCH_ITEMS),
+});
+export type VocabularyBatchRequest = z.infer<typeof VocabularyBatchRequestSchema>;
+
+export const VocabularyCandidateSchema = z.object({
+  id: Id,
+  /** Compatibility alias for lastSeenDay. */
+  sourceDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  firstSeenDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  lastSeenDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  sourceDays: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).min(1),
+  distinctDays: z.number().int().positive(),
+  word: z.string(),
+  normalizedWord: z.string(),
+  pinyin: z.string(),
+  meaning: z.string(),
+  situation: z.string(),
+  /** Lifetime occurrence count across every imported source day. */
+  count: z.number().int().positive(),
+  sessionIds: z.array(z.string()),
+  contexts: z.array(z.string()),
+  rank: z.number().int().positive().nullable(),
+  reasons: z.array(z.string()),
+  state: VocabularyCandidateStateSchema,
+  draftId: Id.nullable(),
+  createdAt: IsoTime,
+  updatedAt: IsoTime,
+});
+export type VocabularyCandidate = z.infer<typeof VocabularyCandidateSchema>;
+
+export const VocabularyBatchResponseSchema = z.object({
+  batchId: Id,
+  candidates: z.array(VocabularyCandidateSchema),
+});
+export type VocabularyBatchResponse = z.infer<typeof VocabularyBatchResponseSchema>;
+
+export const VocabularyCandidateListResponseSchema = z.object({
+  candidates: z.array(VocabularyCandidateSchema),
+  /** Count after state/search filters and before the page limit. */
+  total: z.number().int().nonnegative(),
+});
+export type VocabularyCandidateListResponse = z.infer<typeof VocabularyCandidateListResponseSchema>;
+
+export const VocabularyCandidateSortSchema = z.enum(["rank", "count", "recent", "word"]);
+export type VocabularyCandidateSort = z.infer<typeof VocabularyCandidateSortSchema>;
+
+export const VocabularyCandidateActionSchema = z.enum(["known", "deferred", "reset", "accept"]);
+export type VocabularyCandidateAction = z.infer<typeof VocabularyCandidateActionSchema>;
+
+export const VocabularyCandidateActionRequestSchema = z.object({
+  mutationId: Id,
+  action: VocabularyCandidateActionSchema,
+  /** Selected HSK 5 example. Omitted means the original transcript sentence. */
+  sentence: z.string().trim().min(1).max(MAX_EVENT_TEXT).optional(),
+  /** English rendering of the selected example, not the word gloss. */
+  sentenceEnglish: z.string().trim().min(1).max(1000).optional(),
+});
+export type VocabularyCandidateActionRequest = z.infer<typeof VocabularyCandidateActionRequestSchema>;
+
+export const VocabularyRephraseRequestSchema = z.object({
+  sentence: z.string().trim().min(1).max(MAX_EVENT_TEXT),
+});
+export type VocabularyRephraseRequest = z.infer<typeof VocabularyRephraseRequestSchema>;
+
+export const VocabularyRephraseResponseSchema = z.object({
+  sentence: z.string().trim().min(1).max(MAX_EVENT_TEXT),
+  english: z.string().trim().min(1).max(1000),
+  /** Concrete English search phrase used to find a real photograph. */
+  imageQuery: z.string().trim().min(1).max(200),
+});
+export type VocabularyRephraseResponse = z.infer<typeof VocabularyRephraseResponseSchema>;
+
+export const VocabularyImageRequestSchema = z.object({
+  sentence: z.string().trim().min(1).max(MAX_EVENT_TEXT),
+  imageQuery: z.string().trim().min(1).max(200).optional(),
+});
+export type VocabularyImageRequest = z.infer<typeof VocabularyImageRequestSchema>;
+
+export const VocabularyImageResponseSchema = z.object({
+  url: z.string().url().nullable(),
+  title: z.string().nullable(),
+  sourceUrl: z.string().url().nullable(),
+  license: z.string().nullable(),
+});
+export type VocabularyImageResponse = z.infer<typeof VocabularyImageResponseSchema>;
 
 // ---------------------------------------------------------- Conversations
 
@@ -291,6 +408,8 @@ export const ConflictResponseSchema = z.object({
 // ------------------------------------------------------------ Card drafts
 
 export const CardChoiceSchema = z.object({
+  /** The standard English-to-Chinese Sentence Mining card. Omitted means off for older clients. */
+  sentenceMining: z.boolean().optional(),
   grammar: z.boolean(),
   pronunciation: z.boolean(),
 });
@@ -311,6 +430,7 @@ export const LearningCardDraftSchema = z.object({
   /** Stable key used to find the Anki note again after an interruption. */
   sentenceId: z.string().min(8).max(80),
   findingId: Id.nullable(),
+  vocabularyCandidateId: Id.nullable().optional(),
   segmentIds: z.array(Id),
   conversationId: Id.nullable(),
   english: z.string(),
@@ -326,10 +446,19 @@ export const LearningCardDraftSchema = z.object({
 });
 export type LearningCardDraft = z.infer<typeof LearningCardDraftSchema>;
 
+export const VocabularyCandidateActionResponseSchema = z.object({
+  candidate: VocabularyCandidateSchema,
+  /** Present for Accept; null for state-only actions. */
+  draft: LearningCardDraftSchema.nullable(),
+});
+export type VocabularyCandidateActionResponse = z.infer<typeof VocabularyCandidateActionResponseSchema>;
+
 export const DraftCreateRequestSchema = z.object({
   mutationId: Id,
   /** A confirmed finding, or null for a manually chosen useful phrase. */
   findingId: Id.nullable(),
+  /** A vocabulary inbox source. Mutually exclusive with findingId. */
+  vocabularyCandidateId: Id.nullable().optional(),
   segmentIds: z.array(Id).max(5).default([]),
   conversationId: Id.nullable().default(null),
   english: z.string().trim().max(500).default(""),
@@ -396,6 +525,8 @@ export const LearningErrorCodeSchema = z.enum([
   "connection_revoked",
   "disabled",
   "storage_unavailable",
+  "provider_error",
+  "timeout",
 ]);
 export type LearningErrorCode = z.infer<typeof LearningErrorCodeSchema>;
 

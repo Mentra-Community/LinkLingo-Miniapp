@@ -157,6 +157,41 @@ export function hasRareToken(
   return rare === null || rare.length > 0
 }
 
+/**
+ * Ranked terms the phone can require the backend to translate.
+ *
+ * Sending the exact phone-side matches prevents the backend's different
+ * tokenizer from turning a real rare term into `no_candidates`. A lone Han
+ * character is withheld unless it repeats: inside an unknown compound it is
+ * usually a tokenizer fragment (`预训练` used to become `预 -> pre`), while a
+ * repeated single-character word such as `怼` is strong lexical evidence.
+ * Unknown compounds still reach the backend through `hasRareToken`, where
+ * Jieba can recover their full boundary.
+ */
+export function forwardFocusWords(
+  text: string,
+  inputLanguage: string,
+  knownRank: number,
+  outputLanguage: string,
+  recent: Iterable<string> = [],
+  maxWords = 3,
+): string[] {
+  const rare = rareTokens(text, inputLanguage, knownRank, outputLanguage, recent)
+  if (!rare) return []
+  const budget = Math.max(1, Math.min(3, Math.floor(maxWords)))
+  return rare.filter((token) => !/^[\u4e00-\u9fff]$/.test(token) || occurrences(text, token) > 1).slice(0, budget)
+}
+
+function occurrences(text: string, token: string): number {
+  let count = 0
+  let from = 0
+  while (token && (from = text.indexOf(token, from)) >= 0) {
+    count += 1
+    from += token.length
+  }
+  return count
+}
+
 function isOutputScript(token: string, inputScript: string): boolean {
   if (inputScript === "han") return !CJK.test(token)
   return CJK.test(token)

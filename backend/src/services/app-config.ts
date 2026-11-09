@@ -19,10 +19,10 @@ import {REPEAT_THRESHOLD} from "./history-report"
  * out-of-range values are ignored there and the built-in default is kept.
  */
 export const TUNABLES: Record<string, number> = {
-  glossCooldownMs: 600,
-  cooldownBypassChars: 8,
-  interimStableMs: 300,
-  interimGrowthChars: 6,
+  glossCooldownMs: 250,
+  cooldownBypassChars: 4,
+  interimStableMs: 150,
+  interimGrowthChars: 4,
   wordTtlMs: 25_000,
   wordDedupMs: 20_000,
   reverseMaxWords: 2,

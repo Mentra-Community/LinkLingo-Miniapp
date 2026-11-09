@@ -33,10 +33,10 @@ export const TUNABLE_LIMITS: Record<string, readonly [number, number]> = {
 }
 
 export const DEFAULT_TUNABLES = {
-  glossCooldownMs: 600,
-  cooldownBypassChars: 8,
-  interimStableMs: 300,
-  interimGrowthChars: 6,
+  glossCooldownMs: 250,
+  cooldownBypassChars: 4,
+  interimStableMs: 150,
+  interimGrowthChars: 4,
   wordTtlMs: 25_000,
   wordDedupMs: 20_000,
   reverseMaxWords: 2,

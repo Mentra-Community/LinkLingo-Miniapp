@@ -14,7 +14,7 @@ import {inputLanguage, knownRankFor, outputLanguage, wordRowsFor} from "../share
 import {preconnect, requestGloss, requestUpgrade} from "./backend"
 import {glossTelemetry} from "./glossTelemetry"
 import {createLogger, diagnostics} from "./observability"
-import {hasRareToken, rareTokens} from "./prefilter"
+import {forwardFocusWords, hasRareToken, rareTokens} from "./prefilter"
 import {ReverseGlosser} from "./ReverseGlosser"
 import {tunable} from "./tunables"
 import {ShadowInterimDetector} from "./shadowInterim"
@@ -27,9 +27,9 @@ const log = createLogger("engine")
  * Spacing, interim and hold-off numbers come from the server
  * (`tunable(...)`, see backend/src/services/app-config.ts) so they can be
  * retuned without a reinstall. Built-in defaults live in shared/serverContract.ts:
- * - glossCooldownMs 600: the old 2s floor dropped the second utterance of a pair.
- * - cooldownBypassChars 8: enough new speech makes the cooldown counterproductive.
- * - interimStableMs 300 / interimGrowthChars 6: when an interim is settled enough to gloss.
+ * - glossCooldownMs 250: short enough that a useful second term is not stranded.
+ * - cooldownBypassChars 4: new vocabulary should not wait behind the prior gloss.
+ * - interimStableMs 150 / interimGrowthChars 4: start the network trip while speech is still settling.
  * - wordDedupMs 20s and wordTtlMs 25s: how long a word is held off, and stays on the HUD.
  */
 /** The pre-1.0.17 floor, kept so the change can be A/B'd against the baseline. */
@@ -352,6 +352,10 @@ export class GlossEngine {
     this.glossInFlight = true
     this.callbacks.onProcessing(true)
     this.lastGlossAt = Date.now()
+    const input = inputLanguage(settings)
+    const output = outputLanguage(settings)
+    const knownRank = knownRankFor(settings.proficiency)
+    const maxWords = wordRowsFor(settings.mode)
     // Anything already glossed this session goes up immediately rather than
     // waiting a round trip to be told the same thing. The request still runs:
     // the model adds whatever else is in the utterance, and the cached words
@@ -362,14 +366,22 @@ export class GlossEngine {
       for (const word of cached) this.recent.set(bare(word.word), Date.now())
       this.callbacks.onWords(cached)
     }
+    // The phone and backend intentionally use different Chinese tokenizers.
+    // Carry the phone's exact above-threshold matches so a real hard word
+    // cannot turn into `no_candidates` merely because those boundaries differ.
+    const focusWords = forwardFocusWords(context, input, knownRank, output, this.recent.keys(), maxWords)
     const result = await requestGloss(
       this.session,
       {
         conversationContext: context,
-        inputLanguage: inputLanguage(settings),
-        outputLanguage: outputLanguage(settings),
+        inputLanguage: input,
+        outputLanguage: output,
         fluencyLevel: settings.proficiency,
         recentWords: [...this.recent.keys()],
+        purpose: "forward",
+        focusWords,
+        knownRank,
+        maxWords,
       },
       {
         eligibleAt: attempt.eligibleAt,
@@ -406,7 +418,7 @@ export class GlossEngine {
     diagnostics.increment("engine.words_shown", accepted.length)
     // Remember what the model produced so the next occurrence of these words
     // renders without waiting.
-    this.cache?.remember(accepted, inputLanguage(settings), outputLanguage(settings))
+    this.cache?.remember(accepted, input, output)
     log.info("gloss applied", {
       returned: result.data.words.length,
       shown: accepted.length,
