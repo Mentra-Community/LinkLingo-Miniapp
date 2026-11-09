@@ -136,6 +136,7 @@ export type TranscriptDisposition =
   /** Speech in the output language, glossed back into the language being learned. */
   | "reverse_gloss"
   | "translation_mode"
+  | "save_for_later"
   | "heard"
 
 /** What the phone knows at the moment the user says "that was wrong". */

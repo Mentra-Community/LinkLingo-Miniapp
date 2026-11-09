@@ -19,10 +19,11 @@ import {DisplayRenderer} from "./DisplayRenderer"
 import {GlossEngine} from "./GlossEngine"
 import {toLocale} from "./locales"
 import {CLIENT_BUILD_ID, CLIENT_VERSION} from "./identity"
-import {LearningCapture, captureModeFor} from "./learningCapture"
+import {LearningCapture, captureModeFor, type EnqueueResult} from "./learningCapture"
 import {createLearningTransport, learningUrl, type LearningTransport} from "./learningTransport"
 import {createLogger, diagnostics, logLevel} from "./observability"
 import {cleanPrefs, loadSettings, normalizeSettings, saveSettings, settingPatch} from "./settings"
+import {extractSaveForLater} from "./saveForLater"
 import {TranscriptBuffer} from "./TranscriptBuffer"
 import {TranslationCache} from "./translationCache"
 
@@ -54,6 +55,7 @@ export class LinkLingoController {
   private caption = ""
   private translation = ""
   private original = ""
+  private lastFinalText = ""
   private processing = false
   private backend: BackendStatus = {status: "idle"}
   private profiling: LinkLingoProfiling | null = null
@@ -281,6 +283,7 @@ export class LinkLingoController {
     on("link:set-interim-trigger", ({interimTrigger}) => void this.patch({interimTrigger}))
     on("link:set-fast-cooldown", ({fastCooldown}) => void this.patch({fastCooldown}))
     on("link:feedback", ({requestId, note}) => void this.askAnalyst(requestId, note))
+    on("link:save-for-later", ({requestId, text}) => void this.saveForLater(text, "typed", requestId))
     on("link:learning-pair", ({requestId, code}) => void this.pairLearning(requestId, code))
     on("link:clear", () => {
       log.info("hud cleared by user")
@@ -293,6 +296,7 @@ export class LinkLingoController {
       this.caption = ""
       this.translation = ""
       this.original = ""
+      this.lastFinalText = ""
       this.buffer.clear()
       this.engine.reset()
       this.display.clear(this.settings)
@@ -367,6 +371,7 @@ export class LinkLingoController {
       this.caption = ""
       this.translation = ""
       this.original = ""
+      this.lastFinalText = ""
       this.buffer.clear()
       this.engine.reset()
       this.display.applySettings(this.settings)
@@ -447,6 +452,19 @@ export class LinkLingoController {
         })
       }
     }
+    if (data.isFinal && text) {
+      const save = extractSaveForLater(text, this.lastFinalText)
+      if (save) {
+        diagnostics.increment("learning.save_voice_detected")
+        this.lastFinalText = save.text
+        this.caption = `Saving for later: ${save.text}`
+        this.display.showCaption(this.caption, true, this.settings, this.engine.currentWords(this.words, this.settings))
+        this.ui.send("link:caption", {text: this.caption, isFinal: true})
+        void this.saveForLater(save.text, "voice", undefined, data.language, data.speakerId)
+        return
+      }
+      this.lastFinalText = text
+    }
     // The buffer already correlates an interim with its final under one id,
     // which is what lets a shadow-interim observation be tied to the utterance
     // it would have glossed. TranscriptionData itself carries no id.
@@ -525,6 +543,68 @@ export class LinkLingoController {
       return
     }
     this.ui.send("link:feedback-result", {requestId, ok: true, analysis: result.data})
+  }
+
+  /**
+   * Explicit saves bypass the passive-capture toggle but still require a
+   * paired Mandarin account. The exact sentence enters the same durable phone
+   * queue as normal finals with a disposition Mandarin can prioritize.
+   */
+  private async saveForLater(
+    text: string,
+    source: "voice" | "typed",
+    requestId?: string,
+    detectedLanguage?: string,
+    speakerId?: string,
+  ): Promise<void> {
+    const sentence = text.trim()
+    if (!sentence) {
+      if (requestId) this.ui.send("link:save-for-later-result", {requestId, ok: false, message: "Enter a sentence."})
+      return
+    }
+    diagnostics.increment(`learning.save_${source}`)
+    try {
+      const result = await this.learning.enqueue({
+        text: sentence,
+        explicit: true,
+        language: detectedLanguage,
+        inputLanguage: inputLanguage(this.settings),
+        outputLanguage: outputLanguage(this.settings),
+        mode: "reverse",
+        disposition: "save_for_later",
+      })
+      const ok = result.status === "queued"
+      const message = saveResultMessage(result.status)
+      if (ok && source === "voice") {
+        reportTranscript(this.session, {
+          text: sentence,
+          detectedLanguage,
+          inputLanguage: inputLanguage(this.settings),
+          outputLanguage: outputLanguage(this.settings),
+          fluencyLevel: this.settings.proficiency,
+          mode: "reverse",
+          disposition: "save_for_later",
+          speakerId,
+        })
+      }
+      if (source === "voice") {
+        this.caption = ok ? `Saved for later: ${sentence}` : message
+        this.display.showCaption(this.caption, true, this.settings, this.engine.currentWords(this.words, this.settings))
+        this.ui.send("link:caption", {text: this.caption, isFinal: true})
+      }
+      if (requestId) this.ui.send("link:save-for-later-result", {requestId, ok, message})
+      diagnostics.increment(`learning.save_${ok ? "queued" : result.status}`)
+    } catch (err) {
+      diagnostics.increment("learning.save_errors")
+      log.warn("explicit save failed", {error: err as Error})
+      const message = "Couldn't save that sentence. Try again from the phone."
+      if (source === "voice") {
+        this.caption = message
+        this.display.showCaption(this.caption, true, this.settings, this.engine.currentWords(this.words, this.settings))
+        this.ui.send("link:caption", {text: this.caption, isFinal: true})
+      }
+      if (requestId) this.ui.send("link:save-for-later-result", {requestId, ok: false, message})
+    }
   }
 
   private recordTranscript(
@@ -740,5 +820,22 @@ export class LinkLingoController {
       profiling: this.profiling,
       config: this.config,
     }
+  }
+}
+
+function saveResultMessage(status: EnqueueResult["status"]): string {
+  switch (status) {
+    case "queued":
+      return "Saved for later. It will appear in Mandarin after analysis."
+    case "not_connected":
+      return "Connect Link Lingo to Mandarin before saving."
+    case "paused":
+      return "Sentence saving is unavailable right now."
+    case "rejected":
+      return "That sentence could not be saved."
+    case "dropped":
+      return "The learning queue is full. Open Mandarin and try again."
+    case "error":
+      return "Couldn't save that sentence. Try again."
   }
 }

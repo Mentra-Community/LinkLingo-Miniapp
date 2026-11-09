@@ -77,6 +77,7 @@ async function setup(settings: Partial<LinkLingoSettings> = {}) {
     handleTranscription(data: {text: string; isFinal: boolean; language?: string}): void
     handleTranslation(data: {text: string; originalText?: string; isFinal: boolean; sourceLanguage?: string}): void
     recordTranscript(text: string, lang: string | undefined, disposition: string, utteranceId?: string): void
+    saveForLater(text: string, source: "voice" | "typed", requestId?: string): Promise<void>
   }
   internals.settings = {...DEFAULT_SETTINGS, learningCapture: true, ...settings}
   return {controller, internals, capture, sent, store, delivered}
@@ -112,6 +113,41 @@ describe("controller learning hook", () => {
     expect(delivered.map((e) => e.text)).toEqual(["I just need a coffee"])
     // The engine may treat this as a reverse gloss (English fallback) or a skip; either way it is kept.
     expect(["gloss", "reverse"]).toContain(delivered[0]!.mode)
+  })
+
+  test("a loose spoken save command stores only the requested sentence", async () => {
+    const {internals, capture, delivered} = await setup()
+    internals.handleTranscription({
+      text: "Hey Lingo, could you keep this phrase: I need to reschedule the meeting.",
+      isFinal: true,
+      language: "en-US",
+    })
+    await queued(capture)
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0]).toMatchObject({
+      text: "I need to reschedule the meeting.",
+      mode: "reverse",
+      disposition: "save_for_later",
+    })
+  })
+
+  test("the phone fallback is explicit and works while passive capture is off", async () => {
+    const {internals, capture, delivered, sent} = await setup({learningCapture: false})
+    capture.setEnabled(false)
+    await internals.saveForLater("I need more time to decide.", "typed", "save-1")
+    await queued(capture)
+    expect(delivered[0]).toMatchObject({
+      text: "I need more time to decide.",
+      disposition: "save_for_later",
+    })
+    expect(sent).toContainEqual({
+      channel: "link:save-for-later-result",
+      payload: {
+        requestId: "save-1",
+        ok: true,
+        message: "Saved for later. It will appear in Mandarin after analysis.",
+      },
+    })
   })
 
   test("translation mode captures the recognized original, untrimmed", async () => {

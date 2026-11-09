@@ -616,6 +616,24 @@ describe("pause and status", () => {
     expect(h.cap.status().state).toBe("paused")
   })
 
+  test("an explicit save still queues while passive capture is paused", async () => {
+    const h = await make()
+    h.cap.setEnabled(false)
+    const result = await h.cap.enqueue({
+      ...text(1),
+      text: "I need to reschedule the meeting.",
+      explicit: true,
+      mode: "reverse",
+      disposition: "save_for_later",
+    })
+    expect(result.status).toBe("queued")
+    await h.cap.drain({force: true})
+    expect(allSent(h)[0]).toMatchObject({
+      text: "I need to reschedule the meeting.",
+      disposition: "save_for_later",
+    })
+  })
+
   test("listening requires enabled AND an active subscription; it is not delivery evidence", async () => {
     const h = await make()
     expect(h.cap.status().state).toBe("listening")

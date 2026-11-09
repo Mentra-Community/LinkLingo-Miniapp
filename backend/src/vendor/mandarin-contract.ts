@@ -83,6 +83,7 @@ export const DispositionSchema = z.enum([
   "reverse_gloss",
   "translation_mode",
   "heard",
+  "save_for_later",
 ]);
 
 export const LearningEventSchema = z.object({
@@ -281,6 +282,8 @@ export const SegmentSchema = z.object({
   receivedAt: IsoTime,
   language: z.string().nullable(),
   attribution: AttributionSchema,
+  /** The learner explicitly asked Link Lingo to turn this phrase into a later learning item. */
+  saveForLater: z.boolean().optional(),
   revision: z.number().int().positive(),
 });
 export type Segment = z.infer<typeof SegmentSchema>;

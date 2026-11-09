@@ -18,6 +18,7 @@ const DISPOSITIONS = new Set<TranscriptDisposition>([
   "skipped_no_candidates",
   "reverse_gloss",
   "translation_mode",
+  "save_for_later",
   "heard",
 ])
 

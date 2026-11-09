@@ -39,6 +39,9 @@ export interface Channels {
   /** User flags a problem they just saw; background gathers context and asks the analyst. */
   "link:feedback": {requestId: string; note: string}
   "link:feedback-result": {requestId: string; ok: boolean; analysis?: FeedbackAnalysis; error?: string}
+  /** Explicit sentence-mining request from the phone fallback. */
+  "link:save-for-later": {requestId: string; text: string}
+  "link:save-for-later-result": {requestId: string; ok: boolean; message: string}
   /** A server-driven tab asks for its blocks; `screen` must be one the config lists. */
   "link:view-request": {requestId: string; screen: string; query: Record<string, string>}
   "link:view-result": {requestId: string; ok: boolean; view?: View; error?: string}

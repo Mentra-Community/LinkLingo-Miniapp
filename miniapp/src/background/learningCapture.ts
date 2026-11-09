@@ -139,6 +139,8 @@ export interface CaptureStatus {
 
 export interface EnqueueInput {
   text: string
+  /** An intentional one-off save may queue even when passive capture is paused. */
+  explicit?: boolean
   /** Detected language of the recognized text, as reported by the SDK. */
   language?: string | null
   inputLanguage?: string | null
@@ -258,6 +260,7 @@ export function computeBackoffMs(failures: number, baseMs: number, maxMs: number
  * languages) is a gloss-mode utterance that simply was not glossed.
  */
 export function captureModeFor(settingsMode: string, disposition: CaptureDisposition): CaptureMode {
+  if (disposition === "save_for_later") return "reverse"
   if (settingsMode === "translation" || disposition === "translation_mode") return "translation"
   if (disposition === "reverse_gloss") return "reverse"
   if (disposition === "heard") return "heard"
@@ -492,7 +495,7 @@ export class LearningCapture {
    */
   async enqueue(input: EnqueueInput): Promise<EnqueueResult> {
     try {
-      if (!this.enabled) return {status: "paused"}
+      if (!this.enabled && !input.explicit) return {status: "paused"}
       if (!this.connected) return {status: "not_connected"}
       if (typeof input.text !== "string" || input.text.trim().length === 0) {
         return {status: "rejected", reason: "empty_text"}

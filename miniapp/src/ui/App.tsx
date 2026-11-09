@@ -207,6 +207,7 @@ export function App() {
                 </>
               ) : null}
               {snap.backend.lastError ? <p className="hint">{snap.backend.lastError}</p> : null}
+              <SaveForLater />
               <AnalystNote />
             </section>
 
@@ -442,6 +443,54 @@ export function App() {
         )}
         <p className="app-version">LinkLingo {APP_VERSION}</p>
       </div>
+    </div>
+  )
+}
+
+/** Phone fallback for noisy rooms or any spoken command the ASR misses. */
+function SaveForLater() {
+  const [text, setText] = useState("")
+  const [pending, setPending] = useState<string | null>(null)
+  const [result, setResult] = useState<{ok: boolean; message: string} | null>(null)
+
+  useEffect(
+    () =>
+      mentra.on("link:save-for-later-result", (payload) => {
+        setPending((current) => {
+          if (current !== payload.requestId) return current
+          setResult({ok: payload.ok, message: payload.message})
+          if (payload.ok) setText("")
+          return null
+        })
+      }),
+    [],
+  )
+
+  const submit = () => {
+    const sentence = text.trim()
+    if (!sentence || pending) return
+    const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+    setPending(requestId)
+    setResult(null)
+    mentra.send("link:save-for-later", {requestId, text: sentence})
+  }
+
+  return (
+    <div className="analyst">
+      <strong>Save a sentence for later</strong>
+      <p className="hint">Say “Link Lingo, save for later…” or type the sentence here.</p>
+      <textarea
+        className="analyst-input"
+        rows={2}
+        placeholder="I need to reschedule the meeting."
+        value={text}
+        disabled={pending !== null}
+        onChange={(event) => setText(event.target.value)}
+      />
+      <button type="button" className="primary" disabled={pending !== null || !text.trim()} onClick={submit}>
+        {pending ? "Saving…" : "Save for later"}
+      </button>
+      {result ? <p className={result.ok ? "hint" : "diag-error"}>{result.message}</p> : null}
     </div>
   )
 }
