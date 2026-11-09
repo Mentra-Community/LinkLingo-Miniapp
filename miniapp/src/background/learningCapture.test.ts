@@ -599,6 +599,27 @@ describe("needs attention", () => {
     await h.cap.drain({force: true})
     expect(h.sends).toHaveLength(0)
   })
+
+  test("an explicit save is kept on the phone until Mandarin is connected", async () => {
+    const h = await make({}, {connected: false})
+    const result = await h.cap.enqueue({
+      ...text(1),
+      text: "I need to reschedule the meeting.",
+      explicit: true,
+      mode: "reverse",
+      disposition: "save_for_later",
+      contextBefore: "Can we talk about Thursday?",
+    })
+    expect(result.status).toBe("queued")
+    expect(h.cap.status().pending).toBe(1)
+    h.cap.setConnected(true)
+    await h.cap.drain({force: true})
+    expect(allSent(h)[0]).toMatchObject({
+      text: "I need to reschedule the meeting.",
+      contextBefore: "Can we talk about Thursday?",
+      disposition: "save_for_later",
+    })
+  })
 })
 
 describe("pause and status", () => {

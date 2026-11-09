@@ -170,6 +170,38 @@ describe("intake (durable acknowledgement)", () => {
   })
 })
 
+describe("transcript archive", () => {
+  test("a paired learner's transcript is delivered, and an explicit save is left to the phone queue", async () => {
+    const seen: LearningEvent[] = []
+    const {service} = await pairedService((_url, init) => {
+      const events = JSON.parse(String(init.body)).events as LearningEvent[]
+      seen.push(...events)
+      return committed(events)
+    })
+    expect(
+      await service.captureTranscript(identity, {
+        text: "我们下午去参观博物馆",
+        inputLanguage: "zh",
+        outputLanguage: "en",
+        mode: "gloss-captions",
+        disposition: "queued_gloss",
+      }),
+    ).toBe("queued")
+    expect(
+      await service.captureTranscript(identity, {
+        text: "I need to reschedule the meeting.",
+        inputLanguage: "en",
+        outputLanguage: "zh",
+        mode: "reverse",
+        disposition: "save_for_later",
+      }),
+    ).toBe("skipped")
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(seen.map((event) => event.text)).toEqual(["我们下午去参观博物馆"])
+    expect(seen[0]?.mode).toBe("gloss")
+  })
+})
+
 describe("delivery", () => {
   test("events are removed only after Mandarin confirms the commit, in capture order", async () => {
     const seen: string[][] = []

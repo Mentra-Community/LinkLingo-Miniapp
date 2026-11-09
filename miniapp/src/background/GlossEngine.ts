@@ -14,7 +14,7 @@ import {inputLanguage, knownRankFor, outputLanguage, wordRowsFor} from "../share
 import {preconnect, requestGloss, requestUpgrade} from "./backend"
 import {glossTelemetry} from "./glossTelemetry"
 import {createLogger, diagnostics} from "./observability"
-import {forwardFocusWords, hasRareToken, rareTokens} from "./prefilter"
+import {forwardCandidates, rareTokens} from "./prefilter"
 import {ReverseGlosser} from "./ReverseGlosser"
 import {tunable} from "./tunables"
 import {ShadowInterimDetector} from "./shadowInterim"
@@ -306,20 +306,30 @@ export class GlossEngine {
       diagnostics.increment("engine.gloss_skipped.duplicate")
       return "skipped_duplicate"
     }
-    // Decide locally before spending a round trip to be told there is nothing
-    // to gloss, which for a fluent learner was most calls. Errs toward
-    // calling: it only suppresses when every token is inside the vocabulary.
-    if (
-      !hasRareToken(
-        context,
-        inputLanguage(settings),
-        knownRankFor(settings.proficiency),
-        outputLanguage(settings),
-        this.recent.keys(),
-      )
-    ) {
+    const input = inputLanguage(settings)
+    const output = outputLanguage(settings)
+    const knownRank = knownRankFor(settings.proficiency)
+    const focus = forwardCandidates(context, input, knownRank, output, this.recent.keys(), wordRowsFor(settings.mode))
+    // Null means this phone has no list for the language, so the backend decides.
+    // An empty list is the same answer the backend candidate filter would give.
+    if (focus && focus.length === 0) {
       diagnostics.increment("engine.gloss_skipped.no_candidates")
       return "skipped_no_candidates"
+    }
+    if (focus && focus.length > 0 && this.cache) {
+      const cached = focus.flatMap((token) => {
+        const hit = this.cache?.get(token, input, output)
+        return hit ? [hit] : []
+      })
+      if (cached.length === focus.length) {
+        diagnostics.increment("cache.hits", cached.length)
+        diagnostics.increment("engine.gloss_skipped.cached")
+        const nowShown = Date.now()
+        for (const word of cached) this.recent.set(bare(word.word), nowShown)
+        this.callbacks.onWords(cached.map((word) => ({...word, at: nowShown})))
+        this.lastGlossContext = context
+        return "skipped_duplicate"
+      }
     }
     if (this.glossInFlight) {
       // Coalesced rather than dropped: the newest context replaces any older
@@ -369,7 +379,7 @@ export class GlossEngine {
     // The phone and backend intentionally use different Chinese tokenizers.
     // Carry the phone's exact above-threshold matches so a real hard word
     // cannot turn into `no_candidates` merely because those boundaries differ.
-    const focusWords = forwardFocusWords(context, input, knownRank, output, this.recent.keys(), maxWords)
+    const focusWords = forwardCandidates(context, input, knownRank, output, this.recent.keys(), maxWords) ?? []
     const result = await requestGloss(
       this.session,
       {

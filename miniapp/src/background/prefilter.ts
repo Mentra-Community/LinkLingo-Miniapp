@@ -168,6 +168,38 @@ export function hasRareToken(
  * Unknown compounds still reach the backend through `hasRareToken`, where
  * Jieba can recover their full boundary.
  */
+/**
+ * Terms worth a forward round trip.
+ *
+ * Returns null when this phone cannot judge the language. An empty list means
+ * the backend's candidate filter would also return nothing, so the caller
+ * must not spend the round trip. Consecutive unknown hanzi are stitched into
+ * one compound; a lone unknown character is not a candidate unless it repeats.
+ */
+export function forwardCandidates(
+  text: string,
+  inputLanguage: string,
+  knownRank: number,
+  outputLanguage: string,
+  recent: Iterable<string> = [],
+  maxWords = 3,
+): string[] | null {
+  const trimmed = (text || "").trim()
+  if (!trimmed) return []
+  const lang = normalizeLang(inputLanguage)
+  if (!lang) return null
+  const known = rankMap(lang)
+  if (!known) return null
+  const seenRecently = new Set<string>()
+  for (const word of recent) seenRecently.add(word.toLowerCase())
+  const budget = Math.max(1, Math.min(3, Math.floor(maxWords)))
+  if (lang !== "zh_cn") {
+    const rare = rareTokens(trimmed, inputLanguage, knownRank, outputLanguage, recent)
+    return rare === null ? null : rare.slice(0, budget)
+  }
+  return chineseCandidates(trimmed, known, knownRank, seenRecently).slice(0, budget)
+}
+
 export function forwardFocusWords(
   text: string,
   inputLanguage: string,
@@ -176,20 +208,66 @@ export function forwardFocusWords(
   recent: Iterable<string> = [],
   maxWords = 3,
 ): string[] {
-  const rare = rareTokens(text, inputLanguage, knownRank, outputLanguage, recent)
-  if (!rare) return []
-  const budget = Math.max(1, Math.min(3, Math.floor(maxWords)))
-  return rare.filter((token) => !/^[\u4e00-\u9fff]$/.test(token) || occurrences(text, token) > 1).slice(0, budget)
+  return forwardCandidates(text, inputLanguage, knownRank, outputLanguage, recent, maxWords) ?? []
 }
 
-function occurrences(text: string, token: string): number {
-  let count = 0
-  let from = 0
-  while (token && (from = text.indexOf(token, from)) >= 0) {
-    count += 1
-    from += token.length
+function chineseCandidates(text: string, known: Map<string, number>, knownRank: number, recent: Set<string>): string[] {
+  const tokens: Array<{token: string; rare: boolean}> = []
+  let i = 0
+  while (i < text.length) {
+    const char = text[i]!
+    if (!CJK.test(char)) {
+      i += 1
+      continue
+    }
+    let matched = ""
+    for (let len = Math.min(MAX_CJK_WORD, text.length - i); len >= 2; len--) {
+      const candidate = text.slice(i, i + len)
+      if ([...candidate].every((item) => CJK.test(item)) && known.has(candidate)) {
+        matched = candidate
+        break
+      }
+    }
+    const token = matched || char
+    const rank = known.get(token)
+    tokens.push({token, rare: rank == null || rank > knownRank})
+    i += token.length
   }
-  return count
+
+  const out: string[] = []
+  let unknownRun = ""
+  const flush = () => {
+    if (unknownRun.length >= 2) out.push(unknownRun.slice(0, MAX_CJK_WORD))
+    unknownRun = ""
+  }
+  const singleCounts = new Map<string, number>()
+  for (const token of tokens) {
+    if (token.rare && token.token.length === 1) {
+      singleCounts.set(token.token, (singleCounts.get(token.token) ?? 0) + 1)
+      unknownRun += token.token
+      if (unknownRun.length >= MAX_CJK_WORD) flush()
+      continue
+    }
+    flush()
+    if (token.rare && !recent.has(token.token.toLowerCase())) out.push(token.token)
+  }
+  flush()
+  for (const [token, count] of singleCounts) {
+    if (count > 1 && !recent.has(token.toLowerCase())) out.push(token)
+  }
+  const seen = new Set<string>()
+  return out.filter((token) => {
+    const key = token.toLowerCase()
+    if (recent.has(key) || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+/** True when the English frequency list contains this word, in any casing. */
+export function listedEnglishWord(word: string): boolean {
+  const known = rankMap("en")
+  return Boolean(known?.has(word.toLowerCase()))
 }
 
 function isOutputScript(token: string, inputScript: string): boolean {

@@ -1,6 +1,6 @@
 import {describe, expect, test} from "bun:test"
 
-import {forwardFocusWords} from "./prefilter"
+import {forwardCandidates, forwardFocusWords} from "./prefilter"
 
 describe("forwardFocusWords", () => {
   test("forwards exact ranked terms above the learner threshold", () => {
@@ -13,5 +13,9 @@ describe("forwardFocusWords", () => {
 
   test("keeps a repeated unknown single-character word", () => {
     expect(forwardFocusWords("别怼我，怎么又怼我？", "zh", 5_000, "en")).toContain("怼")
+  })
+
+  test("does not request a round trip for a lone unknown character", () => {
+    expect(forwardCandidates("别怼我", "zh", 5_000, "en")).toEqual([])
   })
 })

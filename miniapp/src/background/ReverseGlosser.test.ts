@@ -29,7 +29,7 @@ mock.module("./backend", () => ({
   requestFeedback: async () => ({ok: false, message: "off"}),
 }))
 
-const {ReverseGlosser, fallbackWords, reverseApplies} = await import("./ReverseGlosser")
+const {ReverseGlosser, classifyFallbacks, fallbackWords, reverseApplies} = await import("./ReverseGlosser")
 const {GlossEngine} = await import("./GlossEngine")
 const {TranscriptBuffer} = await import("./TranscriptBuffer")
 
@@ -49,21 +49,37 @@ describe("fallback words", () => {
     expect(fallbackWords("我想去那个 museum 看看 exhibition", zhEn).sort()).toEqual(["exhibition", "museum"])
   })
 
+  test("keeps complete English spans, including ones ASR capitalized", () => {
+    expect(fallbackWords("我们的 data center 有这个 trend", zhEn)).toEqual(["data center", "trend"])
+    expect(fallbackWords("这个 Pretraining 和 Reinforcement Learning 的 feedback", zhEn)).toEqual([
+      "Pretraining",
+      "Reinforcement Learning",
+      "feedback",
+    ])
+  })
+
+  test("records why a span was left out", () => {
+    expect(classifyFallbacks("那个 Aiko 在 Mentra 用 API", zhEn).rejected.map((item) => item.reason)).toEqual([
+      "name",
+      "name",
+      "acronym",
+    ])
+    expect(fallbackWords("那个 Aiko 在 Mentra 工作", zhEn)).toEqual([])
+  })
+
   test("always keeps lexical English embedded in Chinese", () => {
     expect(fallbackWords("I want to go there", zhEn)).toEqual([])
     expect(fallbackWords("我们 go 吧", zhEn)).toEqual([])
     expect(fallbackWords("那个 work 怎么说", zhEn)).toEqual(["work"])
     expect(fallbackWords("那个 problem", {...zhEn, reverseKnownRank: 300})).toEqual(["problem"])
     expect(fallbackWords("那个 problem", {...zhEn, reverseKnownRank: 2000})).toEqual(["problem"])
-    // Names and acronyms are not vocabulary fallbacks.
-    expect(fallbackWords("那个 Kevin 在 Mentra 工作", zhEn)).toEqual([])
   })
 
-  test("only applies to pairs with different scripts, and not in translate mode", () => {
+  test("Chinese gloss mode translates embedded English even if an old toggle was off", () => {
     expect(reverseApplies(zhEn)).toBe(true)
-    expect(reverseApplies({...zhEn, reverseGloss: false})).toBe(false)
+    expect(reverseApplies({...zhEn, reverseGloss: false})).toBe(true)
     expect(reverseApplies({...zhEn, mode: "translation"})).toBe(false)
-    expect(reverseApplies({...zhEn, sourceLanguage: "es"})).toBe(false)
+    expect(reverseApplies({...zhEn, sourceLanguage: "es", reverseGloss: false})).toBe(false)
   })
 })
 
@@ -132,10 +148,11 @@ describe("GlossEngine routing", () => {
     expect(sent.some((s) => s.purpose === "reverse" && s.inputLanguage === "en")).toBe(true)
   })
 
-  test("with the toggle off, English is skipped exactly as before", () => {
+  test("an old stored toggle cannot suppress English inside a Chinese gloss session", async () => {
     const {say} = harness({...zhEn, reverseGloss: false})
-    expect(say("I need to find the embassy.")).toBe("skipped_language")
-    expect(sent).toHaveLength(0)
+    expect(say("这个 feedback 很重要")).not.toBe("skipped_language")
+    await tick()
+    expect(sent.some((item) => item.purpose === "reverse" && item.focusWords?.includes("feedback"))).toBe(true)
   })
 
   test("common English alone still counts as skipped language", () => {

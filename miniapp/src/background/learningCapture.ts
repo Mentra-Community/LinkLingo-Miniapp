@@ -148,6 +148,8 @@ export interface EnqueueInput {
   mode: CaptureMode
   disposition: CaptureDisposition
   utteranceId?: string
+  contextBefore?: string
+  contextAfter?: string
 }
 
 export type EnqueueResult =
@@ -496,7 +498,8 @@ export class LearningCapture {
   async enqueue(input: EnqueueInput): Promise<EnqueueResult> {
     try {
       if (!this.enabled && !input.explicit) return {status: "paused"}
-      if (!this.connected) return {status: "not_connected"}
+      // Explicit saves are durable even before pairing; they sync on the next connection.
+      if (!this.connected && !input.explicit) return {status: "not_connected"}
       if (typeof input.text !== "string" || input.text.trim().length === 0) {
         return {status: "rejected", reason: "empty_text"}
       }
@@ -515,6 +518,8 @@ export class LearningCapture {
         capturedAt: new Date(this.now()).toISOString(),
         timezone: this.timezone,
         text: input.text,
+        ...(input.contextBefore?.trim() ? {contextBefore: input.contextBefore.trim()} : {}),
+        ...(input.contextAfter?.trim() ? {contextAfter: input.contextAfter.trim()} : {}),
         detectedLanguage: input.language ?? null,
         inputLanguage: input.inputLanguage ?? null,
         outputLanguage: input.outputLanguage ?? null,

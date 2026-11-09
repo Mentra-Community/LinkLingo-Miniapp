@@ -64,7 +64,8 @@ export function normalizeSettings(settings: LinkLingoSettings): LinkLingoSetting
     mode: modes.includes(settings.mode) ? settings.mode : "gloss-captions",
     displayLines: clamp(settings.displayLines, 1, HUD_CAPTION_LINES),
     displayWidth: settings.displayWidth === 0 || settings.displayWidth === 2 ? settings.displayWidth : 1,
-    reverseGloss: settings.reverseGloss !== false,
+    // Embedded English in Chinese gloss mode is mandatory. Heal a stored off switch.
+    reverseGloss: true,
     reverseKnownRank: Number.isFinite(settings.reverseKnownRank)
       ? clamp(Math.round(settings.reverseKnownRank), REVERSE_KNOWN_RANK_LIMITS[0], REVERSE_KNOWN_RANK_LIMITS[1])
       : DEFAULT_SETTINGS.reverseKnownRank,

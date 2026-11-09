@@ -3,6 +3,7 @@ import type {MentraAuthVariables} from "@mentra/auth"
 
 import {createLogger} from "../observability/logger"
 import {metrics} from "../observability/metrics"
+import {getLearningService, identityOf} from "../services/learning-runtime"
 import {transcriptLog} from "../services/transcript-log"
 import type {TranscriptDisposition, TranscriptRequest} from "../shared-types"
 import {mentraAuthMiddleware} from "./auth"
@@ -48,5 +49,11 @@ transcriptApi.post("/", async (c) => {
 
   const entry = transcriptLog.record({...body, text})
   metrics.increment("transcript_outcomes_total", {outcome: "ok"})
+  const learning = getLearningService()
+  if (learning) {
+    void learning.captureTranscript(identityOf(c), {...body, text}).catch((error) => {
+      log.warn("transcript was saved but not queued for Mandarin", {error})
+    })
+  }
   return c.json({ok: true, id: entry.id, wouldGloss: entry.wouldGloss})
 })

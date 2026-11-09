@@ -5,7 +5,7 @@ import type {GlossedWord, LinkLingoSettings} from "../shared/types"
 import {inputLanguage, outputLanguage} from "../shared/types"
 import {requestGloss} from "./backend"
 import {createLogger, diagnostics} from "./observability"
-import {rareTokens} from "./prefilter"
+import {listedEnglishWord, rareTokens} from "./prefilter"
 import {tunable} from "./tunables"
 
 const log = createLogger("reverse")
@@ -13,8 +13,39 @@ const log = createLogger("reverse")
 // `wordDedupMs` is the forward path's hold-off too, so a repeated fallback
 // word does not refill the HUD. `reverseMaxWords` defaults to 2 of the 3 HUD
 // slots so the language being learned keeps room.
-const LATIN_WORD = /[A-Za-z\u00c0-\u024f][A-Za-z\u00c0-\u024f'’-]*/g
+const LATIN_SPAN =
+  /[A-Za-z\u00c0-\u024f][A-Za-z\u00c0-\u024f'’-]*(?:\s+[A-Za-z\u00c0-\u024f][A-Za-z\u00c0-\u024f'’-]*)*/g
 const HAN = /[\u4e00-\u9fff]/
+const FAMILIAR_ACRONYMS = new Set([
+  "ai",
+  "api",
+  "aws",
+  "ceo",
+  "cpu",
+  "gcp",
+  "gpu",
+  "hr",
+  "id",
+  "ios",
+  "llm",
+  "nlp",
+  "ok",
+  "pdf",
+  "sql",
+  "ui",
+  "uk",
+  "url",
+  "us",
+  "ux",
+])
+
+export type FallbackRejectionReason = "stopword" | "short" | "acronym" | "name" | "recent"
+
+export interface FallbackRejection {
+  text: string
+  reason: FallbackRejectionReason
+}
+
 const FALLBACK_STOP_WORDS = new Set([
   "the",
   "and",
@@ -62,7 +93,9 @@ export class ReverseGlosser {
   /** Whether this final carries fallback words worth a call. Queues it when it does. */
   consider(text: string, settings: LinkLingoSettings, utteranceId?: string): boolean {
     if (!reverseApplies(settings)) return false
-    const fallback = fallbackWords(text, settings, this.recentKeys(Date.now()))
+    const decision = classifyFallbacks(text, settings, this.recentKeys(Date.now()))
+    for (const rejection of decision.rejected) diagnostics.increment(`reverse.reject_${rejection.reason}`)
+    const fallback = decision.accepted
     if (fallback.length === 0) return false
     if (this.inFlight) {
       // Latest wins: an older fallback is less useful than the one just spoken.
@@ -137,12 +170,17 @@ export class ReverseGlosser {
   }
 }
 
-/** On only for pairs whose scripts differ, where the fallback words can be told apart. */
+/**
+ * Chinese gloss mode always translates embedded English. A stored toggle cannot
+ * turn that off. Other script pairs still follow the setting.
+ */
 export function reverseApplies(settings: LinkLingoSettings): boolean {
-  if (!settings.reverseGloss || settings.mode === "translation") return false
+  if (settings.mode === "translation") return false
   const input = scriptOfLanguage(inputLanguage(settings))
   const output = scriptOfLanguage(outputLanguage(settings))
-  return input !== "unknown" && output !== "unknown" && input !== output
+  if (input === "unknown" || output === "unknown" || input === output) return false
+  if (input === "han" && output === "latin") return true
+  return settings.reverseGloss
 }
 
 /**
@@ -151,32 +189,77 @@ export function reverseApplies(settings: LinkLingoSettings): boolean {
  * surrounding hanzi with no space ("那个museum看看").
  */
 export function fallbackWords(text: string, settings: LinkLingoSettings, recent: Iterable<string> = []): string[] {
+  return classifyFallbacks(text, settings, recent).accepted
+}
+
+/** English spans inside Chinese, plus the reason every other span was left out. */
+export function classifyFallbacks(
+  text: string,
+  settings: LinkLingoSettings,
+  recent: Iterable<string> = [],
+): {accepted: string[]; rejected: FallbackRejection[]} {
   const output = outputLanguage(settings)
   const input = inputLanguage(settings)
-  const latinWords = text.match(LATIN_WORD) ?? []
-  const words =
-    scriptOfLanguage(output) === "latin" ? latinWords.join(" ") : [...text].filter((c) => HAN.test(c)).join("")
-  if (!words) return []
-  // A lexical English word embedded in Chinese is strong evidence that the
-  // speaker reached for a word they could not produce in Chinese. Translate
-  // it even when it is common English; the frequency cut measures the wrong
-  // language skill for this case. Keep names, acronyms and discourse glue out.
-  if (scriptOfLanguage(output) === "latin" && HAN.test(text)) {
-    const seenRecently = new Set([...recent].map((word) => word.toLowerCase()))
-    return [
-      ...new Set(
-        latinWords
-          .filter((word) => word.length >= 3)
-          .filter((word) => word === word.toLowerCase())
-          .map((word) => word.toLowerCase())
-          .filter((word) => !FALLBACK_STOP_WORDS.has(word) && !seenRecently.has(word)),
-      ),
-    ]
+  const spans = text.match(LATIN_SPAN) ?? []
+  const words = scriptOfLanguage(output) === "latin" ? spans.join(" ") : [...text].filter((c) => HAN.test(c)).join("")
+  if (!words) return {accepted: [], rejected: []}
+  if (!(scriptOfLanguage(output) === "latin" && HAN.test(text))) {
+    const rare = rareTokens(words, output, settings.reverseKnownRank, input, recent)
+    if (rare === null) return {accepted: words.split(/\s+/).filter(Boolean), rejected: []}
+    return {accepted: rare, rejected: []}
   }
-  const rare = rareTokens(words, output, settings.reverseKnownRank, input, recent)
-  // An output language with no bundled list cannot be judged on the phone; let the backend decide.
-  if (rare === null) return words.split(/\s+/).filter(Boolean)
-  return rare
+
+  const seenRecently = new Set([...recent].map((word) => word.toLowerCase()))
+  const accepted: string[] = []
+  const rejected: FallbackRejection[] = []
+  const seen = new Set<string>()
+  for (const span of spans) {
+    const cleaned = contentSpan(span)
+    const key = cleaned.toLowerCase()
+    if (!cleaned) {
+      rejected.push({text: span, reason: "stopword"})
+      continue
+    }
+    if (seen.has(key)) continue
+    seen.add(key)
+    const reason = rejectionReason(cleaned, seenRecently)
+    if (reason) rejected.push({text: cleaned, reason})
+    else accepted.push(cleaned)
+  }
+  return {accepted, rejected}
+}
+
+function contentSpan(span: string): string {
+  const words = span.split(/\s+/).filter((word) => !FALLBACK_STOP_WORDS.has(word.toLowerCase()))
+  return words.join(" ").trim()
+}
+
+function rejectionReason(span: string, recent: Set<string>): FallbackRejectionReason | null {
+  if (recent.has(span.toLowerCase())) return "recent"
+  if (isAcronym(span)) return "acronym"
+  if (isObviousName(span)) return "name"
+  if (!span.includes(" ") && span.length < 3) return "short"
+  return null
+}
+
+function isAcronym(span: string): boolean {
+  return span.split(/\s+/).every((word) => {
+    if (FAMILIAR_ACRONYMS.has(word.toLowerCase()) && word === word.toUpperCase()) return true
+    return /^[A-Z0-9]{2,6}$/.test(word)
+  })
+}
+
+/**
+ * A single capitalized token with no dictionary morphology is treated as a
+ * name. Capitalization alone is not enough: Pretraining and Reinforcement
+ * Learning stay because of their shape, not their letters' case.
+ */
+function isObviousName(span: string): boolean {
+  if (span.includes(" ")) return false
+  if (listedEnglishWord(span)) return false
+  if (/^(pre|re|un|non|multi|cross|anti|inter|over|under)/i.test(span)) return false
+  if (/(ing|tion|sion|ment|ity|ism|ize|ise|ous|able|ible|ence|ance)$/i.test(span)) return false
+  return /^[A-Z][a-z]{1,14}$/.test(span)
 }
 
 function bare(word: string): string {

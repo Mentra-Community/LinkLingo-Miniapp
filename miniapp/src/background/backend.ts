@@ -63,7 +63,18 @@ export function setPrefs(prefs: Record<string, SettingValue>): void {
 function authed(session: MiniappSession, path: string, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers)
   if (prefsHeader && prefsHeader.length <= 2048) headers.set("X-LinkLingo-Prefs", prefsHeader)
-  return session.auth.fetch(url(path), {...init, headers})
+  const started = Date.now()
+  return session.auth.fetch(url(path), {...init, headers}).then(
+    (response) => {
+      diagnostics.observe("transport.headers", Date.now() - started)
+      return response
+    },
+    (error) => {
+      diagnostics.observe("transport.headers", Date.now() - started)
+      diagnostics.increment("transport.header_errors")
+      throw error
+    },
+  )
 }
 
 /**
@@ -146,7 +157,9 @@ export async function requestGloss(
       return {ok: false, message}
     }
     glossTelemetry.noteResponse(requestId, durationMs, "ok")
+    const bodyStarted = Date.now()
     const data = (await res.json()) as GlossApiResult
+    diagnostics.observe("transport.body", Date.now() - bodyStarted)
     const words = data.words ?? []
     diagnostics.increment("gloss.ok")
     diagnostics.increment("gloss.words", words.length)

@@ -102,6 +102,9 @@ export const LearningEventSchema = z.object({
   timezone: z.string().trim().min(1).max(60),
   /** Exactly the recognized final text, unchanged. */
   text: z.string().min(1).max(MAX_EVENT_TEXT),
+  /** Finals spoken immediately before and after an explicit save, when the phone has them. */
+  contextBefore: z.string().trim().max(MAX_EVENT_TEXT).optional(),
+  contextAfter: z.string().trim().max(MAX_EVENT_TEXT).optional(),
   detectedLanguage: z.string().max(20).nullable().optional(),
   inputLanguage: z.string().max(20).nullable().optional(),
   outputLanguage: z.string().max(20).nullable().optional(),
@@ -264,6 +267,54 @@ export const VocabularyImageResponseSchema = z.object({
   license: z.string().nullable(),
 });
 export type VocabularyImageResponse = z.infer<typeof VocabularyImageResponseSchema>;
+
+// ---------------------------------------------------- Saved sentences
+
+export const SavedSentenceStateSchema = z.enum(["pending", "ready", "later", "dismissed", "accepted"]);
+export type SavedSentenceState = z.infer<typeof SavedSentenceStateSchema>;
+
+export const SavedSentenceSchema = z.object({
+  id: Id,
+  /** The English the learner asked to keep. */
+  english: z.string(),
+  /** Natural spoken Mandarin. Empty while translation is still pending. */
+  chinese: z.string(),
+  pinyin: z.string(),
+  contextBefore: z.string(),
+  contextAfter: z.string(),
+  state: SavedSentenceStateSchema,
+  lastError: z.string().nullable(),
+  draftId: Id.nullable(),
+  createdAt: IsoTime,
+  updatedAt: IsoTime,
+});
+export type SavedSentence = z.infer<typeof SavedSentenceSchema>;
+
+export const SavedSentenceListResponseSchema = z.object({
+  sentences: z.array(SavedSentenceSchema),
+  total: z.number().int().nonnegative(),
+});
+export type SavedSentenceListResponse = z.infer<typeof SavedSentenceListResponseSchema>;
+
+export const SavedSentenceActionSchema = z.enum(["later", "dismiss", "accept"]);
+export type SavedSentenceAction = z.infer<typeof SavedSentenceActionSchema>;
+
+export const SavedSentenceActionRequestSchema = z.object({
+  mutationId: Id,
+  action: SavedSentenceActionSchema,
+  /** Rephrased English. Omitted means the saved sentence. */
+  english: z.string().trim().min(1).max(500).optional(),
+  /** Rephrased Chinese. Omitted means the stored translation. */
+  chinese: z.string().trim().min(1).max(500).optional(),
+});
+export type SavedSentenceActionRequest = z.infer<typeof SavedSentenceActionRequestSchema>;
+
+export const SavedSentenceRephraseResponseSchema = z.object({
+  english: z.string().trim().min(1).max(500),
+  chinese: z.string().trim().min(1).max(500),
+  pinyin: z.string(),
+});
+export type SavedSentenceRephraseResponse = z.infer<typeof SavedSentenceRephraseResponseSchema>;
 
 // ---------------------------------------------------------- Conversations
 
@@ -455,6 +506,12 @@ export const VocabularyCandidateActionResponseSchema = z.object({
   draft: LearningCardDraftSchema.nullable(),
 });
 export type VocabularyCandidateActionResponse = z.infer<typeof VocabularyCandidateActionResponseSchema>;
+
+export const SavedSentenceActionResponseSchema = z.object({
+  sentence: SavedSentenceSchema,
+  draft: LearningCardDraftSchema.nullable(),
+});
+export type SavedSentenceActionResponse = z.infer<typeof SavedSentenceActionResponseSchema>;
 
 export const DraftCreateRequestSchema = z.object({
   mutationId: Id,

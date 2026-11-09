@@ -137,7 +137,7 @@ function focusCandidates(body: GlossRequest, context: string, knownRank: number,
     if (!reverse && rank != null && rank <= knownRank) continue
     const effectiveRank = rank ?? MAX_KNOWN_RANK + 1
     words.push({
-      word: bare,
+      word: reverse ? word : bare,
       rank: effectiveRank,
       gap: effectiveRank - knownRank,
       unknown: rank == null,

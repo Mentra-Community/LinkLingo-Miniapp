@@ -148,6 +148,13 @@ export interface LearningDeps {
 
 const pad = (n: number, width: number) => String(Math.max(0, Math.trunc(n))).padStart(width, "0")
 
+function captureMode(mode: string, disposition: LearningEvent["disposition"]): LearningEvent["mode"] {
+  if (mode === "translation" || disposition === "translation_mode") return "translation"
+  if (disposition === "reverse_gloss") return "reverse"
+  if (disposition === "heard") return "heard"
+  return "gloss"
+}
+
 function outboxPrefix(userKey: string): string {
   return `learning/outbox/${userKey}/`
 }
@@ -316,6 +323,58 @@ export class LearningService {
    * resolves; if any write fails the whole batch is retried and the events
    * that did land are simply overwritten with identical content.
    */
+  /**
+   * Copies a transcript the phone already reported into the Mandarin outbox.
+   * Passive phone capture defaults off, which is why Mandarin can have the
+   * gloss tape and still have zero conversation segments. Explicit saves stay
+   * on the phone queue so they are not delivered twice.
+   */
+  async captureTranscript(
+    identity: SourceIdentity,
+    body: {
+      text: string
+      detectedLanguage?: string
+      inputLanguage: string
+      outputLanguage: string
+      mode: string
+      disposition: LearningEvent["disposition"]
+      utteranceId?: string
+      clientVersion?: string
+      clientBuildId?: string
+    },
+  ): Promise<"queued" | "skipped"> {
+    if (body.disposition === "save_for_later") return "skipped"
+    const text = body.text.trim()
+    if (!text) return "skipped"
+    const userKey = userKeyFor(identity)
+    const connection = await this.loadConnection(userKey)
+    if (!connection || connection.revokedAt) return "skipped"
+    const mode = captureMode(body.mode, body.disposition)
+    const eventId = `srv${randomBytes(12).toString("hex")}`
+    const event: LearningEvent = {
+      schemaVersion: LEARNING_SCHEMA_VERSION,
+      source: "linklingo",
+      sourceSessionId: "server-transcripts",
+      eventId,
+      ...(body.utteranceId ? {utteranceId: body.utteranceId.slice(0, 100)} : {}),
+      sequence: Date.now(),
+      capturedAt: new Date(this.now()).toISOString(),
+      timezone: "Asia/Shanghai",
+      text: text.slice(0, 2000),
+      detectedLanguage: body.detectedLanguage ?? null,
+      inputLanguage: body.inputLanguage,
+      outputLanguage: body.outputLanguage,
+      mode,
+      disposition: body.disposition,
+      speakerAttribution: "unknown",
+      clientVersion: (body.clientVersion ?? "server").slice(0, 40),
+      clientBuildId: (body.clientBuildId ?? "transcript").slice(0, 60),
+    }
+    await this.enqueue(userKey, [event])
+    void this.drain(userKey)
+    return "queued"
+  }
+
   async enqueue(
     userKey: string,
     rawEvents: unknown[],

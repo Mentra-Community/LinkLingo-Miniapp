@@ -12,19 +12,12 @@ export const DEFAULT_CONFIG: AppConfig = {
   tunables: {...DEFAULT_TUNABLES},
   settings: [
     {
-      type: "toggle",
-      key: "reverseGloss",
-      title: "Gloss my {output} too",
-      detail: "When you fall back to {output} mid-sentence, show it in {input}",
-      disabledWhen: {key: "mode", equals: "translation"},
-    },
-    {
       type: "select",
       key: "reverseKnownRank",
       title: "Skip the most common {output}",
-      detail: "Words this frequent are never glossed back",
+      detail: "Whole sentences in {output} skip words this frequent. English inside Chinese is still translated.",
       options: [300, 500, 1000, 2000].map((rank) => ({value: rank, label: `Top ${rank.toLocaleString("en-US")}`})),
-      visibleWhen: {key: "reverseGloss", equals: true},
+      disabledWhen: {key: "mode", equals: "translation"},
     },
   ],
   screens: [{id: "reports", title: "Reports", period: true}],

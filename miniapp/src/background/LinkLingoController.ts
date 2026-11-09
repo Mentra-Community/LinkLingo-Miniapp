@@ -56,6 +56,7 @@ export class LinkLingoController {
   private translation = ""
   private original = ""
   private lastFinalText = ""
+  private recentFinals: string[] = []
   private processing = false
   private backend: BackendStatus = {status: "idle"}
   private profiling: LinkLingoProfiling | null = null
@@ -283,7 +284,12 @@ export class LinkLingoController {
     on("link:set-interim-trigger", ({interimTrigger}) => void this.patch({interimTrigger}))
     on("link:set-fast-cooldown", ({fastCooldown}) => void this.patch({fastCooldown}))
     on("link:feedback", ({requestId, note}) => void this.askAnalyst(requestId, note))
-    on("link:save-for-later", ({requestId, text}) => void this.saveForLater(text, "typed", requestId))
+    on("link:save-for-later", ({requestId, text}) => {
+      const heard = this.recentFinals
+      const previous = heard.at(-1) ?? ""
+      const contextBefore = previous.trim() && previous.trim() !== text.trim() ? previous : (heard.at(-2) ?? "")
+      void this.saveForLater(text, "typed", requestId, undefined, undefined, contextBefore)
+    })
     on("link:learning-pair", ({requestId, code}) => void this.pairLearning(requestId, code))
     on("link:clear", () => {
       log.info("hud cleared by user")
@@ -297,6 +303,7 @@ export class LinkLingoController {
       this.translation = ""
       this.original = ""
       this.lastFinalText = ""
+      this.recentFinals = []
       this.buffer.clear()
       this.engine.reset()
       this.display.clear(this.settings)
@@ -372,6 +379,7 @@ export class LinkLingoController {
       this.translation = ""
       this.original = ""
       this.lastFinalText = ""
+      this.recentFinals = []
       this.buffer.clear()
       this.engine.reset()
       this.display.applySettings(this.settings)
@@ -456,14 +464,18 @@ export class LinkLingoController {
       const save = extractSaveForLater(text, this.lastFinalText)
       if (save) {
         diagnostics.increment("learning.save_voice_detected")
+        const contextBefore = save.usedPrevious
+          ? (this.recentFinals[this.recentFinals.length - 2] ?? "")
+          : (this.recentFinals[this.recentFinals.length - 1] ?? "")
         this.lastFinalText = save.text
         this.caption = `Saving for later: ${save.text}`
         this.display.showCaption(this.caption, true, this.settings, this.engine.currentWords(this.words, this.settings))
         this.ui.send("link:caption", {text: this.caption, isFinal: true})
-        void this.saveForLater(save.text, "voice", undefined, data.language, data.speakerId)
+        void this.saveForLater(save.text, "voice", undefined, data.language, data.speakerId, contextBefore)
         return
       }
       this.lastFinalText = text
+      this.recentFinals = [...this.recentFinals, text].slice(-4)
     }
     // The buffer already correlates an interim with its final under one id,
     // which is what lets a shadow-interim observation be tied to the utterance
@@ -546,9 +558,8 @@ export class LinkLingoController {
   }
 
   /**
-   * Explicit saves bypass the passive-capture toggle but still require a
-   * paired Mandarin account. The exact sentence enters the same durable phone
-   * queue as normal finals with a disposition Mandarin can prioritize.
+   * Explicit saves bypass the passive-capture toggle. They are written to the
+   * phone queue immediately and sync when a Mandarin connection exists.
    */
   private async saveForLater(
     text: string,
@@ -556,6 +567,7 @@ export class LinkLingoController {
     requestId?: string,
     detectedLanguage?: string,
     speakerId?: string,
+    contextBefore = "",
   ): Promise<void> {
     const sentence = text.trim()
     if (!sentence) {
@@ -572,9 +584,13 @@ export class LinkLingoController {
         outputLanguage: outputLanguage(this.settings),
         mode: "reverse",
         disposition: "save_for_later",
+        contextBefore,
       })
       const ok = result.status === "queued"
-      const message = saveResultMessage(result.status)
+      const offline = ok && this.learning.status().state === "not_connected"
+      const message = offline
+        ? "Saved on this phone. It will sync when Mandarin is connected."
+        : saveResultMessage(result.status)
       if (ok && source === "voice") {
         reportTranscript(this.session, {
           text: sentence,

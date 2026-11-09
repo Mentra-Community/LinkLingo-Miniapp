@@ -449,7 +449,9 @@ function scoreTokens(transcript: string, language: string, outputLanguage?: stri
       // often has no frequency rank, but is exactly what an advanced learner
       // needs. Unknown single Hanzi remain too ambiguous to force live.
       if (isCjk && cleaned.length === 1) continue
-      if (!isCjk && /^[A-Z]/.test(cleaned)) continue
+      // All-caps tokens are acronyms. A single capital from ASR is not a reason
+      // to drop a technical term such as Pretraining.
+      if (!isCjk && /^[A-Z0-9]{2,6}$/.test(cleaned)) continue
     } else if (isCjk && cleaned.length === 1 && rank < SINGLE_CHAR_MIN_CANDIDATE_RANK) {
       continue
     }
