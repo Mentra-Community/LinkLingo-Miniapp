@@ -5,9 +5,10 @@
 version: v2
 name: linklingo-miniapp-dev
 
+# The group the live app already uses. The older linklingo-dev groups are not
+# what is serving glosses.
 envGroups:
-  - linklingo-dev
-  - linklingo-openrouter-dev
+  - linklingo-dev-doppler
 
 build:
   method: docker
