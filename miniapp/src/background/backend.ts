@@ -60,21 +60,40 @@ export function setPrefs(prefs: Record<string, SettingValue>): void {
   prefsHeader = Object.keys(prefs).length > 0 ? encodeURIComponent(JSON.stringify(prefs)) : ""
 }
 
-function authed(session: MiniappSession, path: string, init: RequestInit): Promise<Response> {
-  const headers = new Headers(init.headers)
-  if (prefsHeader && prefsHeader.length <= 2048) headers.set("X-LinkLingo-Prefs", prefsHeader)
+/**
+ * The phone runs this file in a bare JavaScriptCore / QuickJS context. Its
+ * polyfill provides fetch, AbortController and TextEncoder, but not `Headers`
+ * or `URLSearchParams`. Reaching for either throws a ReferenceError before the
+ * request leaves the phone, so headers here are plain objects.
+ */
+function plainHeaders(source: HeadersInit | undefined): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!source) return out
+  if (Array.isArray(source)) {
+    for (const [key, value] of source) out[key] = value
+  } else if (typeof (source as Headers).forEach === "function") {
+    ;(source as Headers).forEach((value, key) => {
+      out[key] = value
+    })
+  } else {
+    for (const [key, value] of Object.entries(source as Record<string, string>)) out[key] = value
+  }
+  return out
+}
+
+async function authed(session: MiniappSession, path: string, init: RequestInit): Promise<Response> {
+  const headers = plainHeaders(init.headers)
+  if (prefsHeader && prefsHeader.length <= 2048) headers["X-LinkLingo-Prefs"] = prefsHeader
   const started = Date.now()
-  return session.auth.fetch(url(path), {...init, headers}).then(
-    (response) => {
-      diagnostics.observe("transport.headers", Date.now() - started)
-      return response
-    },
-    (error) => {
-      diagnostics.observe("transport.headers", Date.now() - started)
-      diagnostics.increment("transport.header_errors")
-      throw error
-    },
-  )
+  try {
+    const response = await session.auth.fetch(url(path), {...init, headers})
+    diagnostics.observe("transport.headers", Date.now() - started)
+    return response
+  } catch (error) {
+    diagnostics.observe("transport.headers", Date.now() - started)
+    diagnostics.increment("transport.header_errors")
+    throw error
+  }
 }
 
 /**
@@ -302,7 +321,10 @@ export function requestView(
   screen: string,
   query: Record<string, string>,
 ): Promise<BackendResult<View>> {
-  const params = new URLSearchParams(query)
+  // No URLSearchParams in the phone's background engine.
+  const params = Object.entries(query)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join("&")
   return getJson(session, "views", `/api/views/${encodeURIComponent(screen)}?${params}`)
 }
 
